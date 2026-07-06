@@ -12,6 +12,12 @@ enum class MessageDirection {
     Outbound,
 }
 
+enum class AgentMessageType {
+    Sms,
+    DataSms,
+    Mms,
+}
+
 data class AgentContact(
     val id: String,
     val displayName: String?,
@@ -38,6 +44,22 @@ data class AgentMessage(
     val text: String,
     val state: String,
     val time: String,
+    val messageType: AgentMessageType = AgentMessageType.Sms,
+    val attachments: List<AgentMessageAttachment> = emptyList(),
+)
+
+data class AgentMessageAttachment(
+    val id: String,
+    val partId: Int,
+    val contentType: String,
+    val name: String?,
+    val size: Long?,
+    val url: String?,
+)
+
+data class AgentImagePreviewTarget(
+    val url: String,
+    val description: String,
 )
 
 data class AgentMenu(
@@ -137,7 +159,7 @@ class CustomerServiceStore(
         messagesByConversation[conversationId]?.lastOrNull()?.let { message ->
             updateConversationPreview(
                 conversationId = conversationId,
-                preview = message.text,
+                preview = message.previewText(),
                 unreadCount = conversations.firstOrNull { it.id == conversationId }?.unreadCount ?: 0,
                 protectFromStaleRefresh = true,
             )
@@ -184,7 +206,7 @@ class CustomerServiceStore(
         upsertMessage(message)
         updateConversationPreview(
             conversationId = message.conversationId,
-            preview = message.text,
+            preview = message.previewText(),
             unreadCount = 0,
             protectFromStaleRefresh = true,
         )
@@ -197,7 +219,7 @@ class CustomerServiceStore(
         val unreadIncrement = if (saved.wasNew) 1 else 0
         updateConversationPreview(
             conversationId = message.conversationId,
-            preview = saved.message.text,
+            preview = saved.message.previewText(),
             unreadCount = if (isConversationOpen) 0 else currentUnread + unreadIncrement,
             protectFromStaleRefresh = true,
         )
@@ -323,5 +345,26 @@ class CustomerServiceStore(
     private data class UpsertedMessage(
         val message: AgentMessage,
         val wasNew: Boolean,
+    )
+}
+
+fun AgentMessage.previewText(): String {
+    val trimmed = text.trim()
+    if (trimmed.isNotBlank()) return trimmed
+    if (messageType != AgentMessageType.Mms) return ""
+    if (attachments.isEmpty()) return "[Image downloading]"
+    return if (attachments.any { it.contentType.startsWith("image/", ignoreCase = true) }) {
+        "[Image]"
+    } else {
+        "[Attachment]"
+    }
+}
+
+fun AgentMessageAttachment.imagePreviewTarget(): AgentImagePreviewTarget? {
+    val imageUrl = url?.takeIf { it.isNotBlank() } ?: return null
+    if (!contentType.startsWith("image/", ignoreCase = true)) return null
+    return AgentImagePreviewTarget(
+        url = imageUrl,
+        description = name?.takeIf { it.isNotBlank() } ?: "Image message",
     )
 }

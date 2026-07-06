@@ -127,6 +127,19 @@ class CustomerServiceStoreTest {
     }
 
     @Test
+    fun simCardRemarkDisplayUsesCustomerRemarkInsteadOfCarrier() {
+        val simCard = AgentSimCardItem(
+            id = "sim_1",
+            phoneNumber = "+8613800000001",
+            carrierName = "China Mobile",
+            areas = "north",
+            customerRemark = "客服 A 专用",
+        )
+
+        assertEquals("客服 A 专用", simCardRemarkDisplayText(simCard))
+    }
+
+    @Test
     fun updateRemarkChangesContactTitleAndConversationTitle() {
         val store = populatedStore()
 
@@ -241,6 +254,91 @@ class CustomerServiceStoreTest {
 
         assertEquals(reply, store.messagesFor("conv_1").last())
         assertEquals("Server confirmed", store.conversations.single().lastMessagePreview)
+    }
+
+    @Test
+    fun mmsMessagesUseImagePreviewAndPendingPreviewText() {
+        val store = CustomerServiceStore(
+            contacts = listOf(
+                AgentContact("contact_1", "Client One", "+1 555 0101", "", "north"),
+            ),
+            conversations = listOf(
+                AgentConversation("conv_1", "contact_1", "+1 555 0101", "north", 0, "", "09:44"),
+            ),
+            messagesByConversation = emptyMap(),
+            menus = emptyList(),
+        )
+
+        store.replaceMessages(
+            "conv_1",
+            listOf(
+                AgentMessage(
+                    id = "msg_mms_pending",
+                    conversationId = "conv_1",
+                    direction = MessageDirection.Inbound,
+                    text = "",
+                    state = "Received",
+                    time = "09:45",
+                    messageType = AgentMessageType.Mms,
+                    attachments = emptyList(),
+                ),
+            ),
+        )
+
+        assertEquals("[Image downloading]", store.conversations.single().lastMessagePreview)
+
+        store.replaceMessages(
+            "conv_1",
+            listOf(
+                AgentMessage(
+                    id = "msg_mms_pending",
+                    conversationId = "conv_1",
+                    direction = MessageDirection.Inbound,
+                    text = "",
+                    state = "Received",
+                    time = "09:46",
+                    messageType = AgentMessageType.Mms,
+                    attachments = listOf(
+                        AgentMessageAttachment(
+                            id = "att_1",
+                            partId = 1,
+                            contentType = "image/jpeg",
+                            name = "photo.jpg",
+                            size = 128L,
+                            url = "https://cdn.example.com/photo.jpg",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(1, store.messagesFor("conv_1").size)
+        assertEquals("[Image]", store.conversations.single().lastMessagePreview)
+        assertEquals("att_1", store.messagesFor("conv_1").single().attachments.single().id)
+    }
+
+    @Test
+    fun imagePreviewTargetRequiresImageAttachmentWithUrl() {
+        val image = AgentMessageAttachment(
+            id = "att_1",
+            partId = 1,
+            contentType = "image/jpeg",
+            name = "receipt.jpg",
+            size = 128L,
+            url = "https://cdn.example.com/receipt.jpg",
+        )
+        val missingUrl = image.copy(id = "att_2", url = null)
+        val file = image.copy(id = "att_3", contentType = "application/pdf", url = "https://cdn.example.com/file.pdf")
+
+        assertEquals(
+            AgentImagePreviewTarget(
+                url = "https://cdn.example.com/receipt.jpg",
+                description = "receipt.jpg",
+            ),
+            image.imagePreviewTarget(),
+        )
+        assertNull(missingUrl.imagePreviewTarget())
+        assertNull(file.imagePreviewTarget())
     }
 
     @Test

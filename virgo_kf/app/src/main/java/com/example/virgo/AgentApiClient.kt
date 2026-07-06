@@ -17,6 +17,7 @@ data class AgentSimCardItem(
     val phoneNumber: String?,
     val carrierName: String?,
     val areas: String?,
+    val customerRemark: String? = null,
 )
 
 data class AgentConversationSearchItem(
@@ -124,7 +125,7 @@ class AgentApiClient(
     }
 
     fun messages(conversationId: String): List<AgentMessage> {
-        return JsonSupport.objectList(request("GET", AgentApiPaths.conversationMessages(conversationId))).map { item ->
+        return JsonSupport.objectNodeList(request("GET", AgentApiPaths.conversationMessages(conversationId))).map { item ->
             mapMessage(item, conversationId)
         }
     }
@@ -146,6 +147,7 @@ class AgentApiClient(
                 phoneNumber = item["phoneNumber"].toNullableField(),
                 carrierName = item["carrierName"].toNullableField(),
                 areas = item["areas"].toNullableField(),
+                customerRemark = item["customerRemark"].toNullableField(),
             )
         }
     }
@@ -192,7 +194,7 @@ class AgentApiClient(
             body = buildJson("text" to text),
             extraHeaders = mapOf("Idempotency-Key" to idempotencyKey),
         )
-        return mapMessage(JsonSupport.objectMap(response), conversationId)
+        return mapMessage(JsonSupport.objectNode(response), conversationId)
     }
 
     fun listenEvents(onInboundMessage: (AgentInboundMessageEvent) -> Unit) {
@@ -343,19 +345,63 @@ class AgentApiClient(
         }
     }
 
-    private fun mapMessage(item: Map<String, String>, fallbackConversationId: String): AgentMessage {
-        val direction = when (item["direction"]?.uppercase()) {
+    private fun mapMessage(item: Map<String, Any?>, fallbackConversationId: String): AgentMessage {
+        val direction = when (item.stringValue("direction").uppercase()) {
             "OUTBOUND" -> MessageDirection.Outbound
             else -> MessageDirection.Inbound
         }
+        val messageType = when (item.stringValue("messageType").uppercase()) {
+            "DATA_SMS" -> AgentMessageType.DataSms
+            "MMS" -> AgentMessageType.Mms
+            else -> AgentMessageType.Sms
+        }
         return AgentMessage(
-            id = item.getValue("id"),
-            conversationId = item["conversationId"] ?: fallbackConversationId,
+            id = item.stringValue("id"),
+            conversationId = item.stringValue("conversationId").ifBlank { fallbackConversationId },
             direction = direction,
-            text = item["textContent"] ?: item["text"] ?: "",
-            state = item["state"] ?: if (direction == MessageDirection.Outbound) "Sent" else "Received",
-            time = item["createdAt"]?.let(::formatTimestamp).orEmpty(),
+            text = item.stringValue("textContent").ifBlank { item.stringValue("text") },
+            state = item.stringValue("state").ifBlank {
+                if (direction == MessageDirection.Outbound) "Sent" else "Received"
+            },
+            time = item.stringValue("createdAt").let(::formatTimestamp),
+            messageType = messageType,
+            attachments = item.attachments(),
         )
+    }
+
+    private fun Map<String, Any?>.stringValue(key: String): String {
+        return when (val value = this[key]) {
+            null -> ""
+            is String -> value
+            is Number -> value.toString()
+            is Boolean -> value.toString()
+            else -> ""
+        }
+    }
+
+    private fun Map<String, Any?>.attachments(): List<AgentMessageAttachment> {
+        val rawAttachments = this["attachments"] as? List<*> ?: return emptyList()
+        return rawAttachments.mapNotNull { raw ->
+            val item = raw as? Map<*, *> ?: return@mapNotNull null
+            AgentMessageAttachment(
+                id = item.rawStringValue("id"),
+                partId = item.rawStringValue("partId").toIntOrNull() ?: 0,
+                contentType = item.rawStringValue("contentType"),
+                name = item.rawStringValue("name").takeIf { it.isNotBlank() },
+                size = item.rawStringValue("size").toLongOrNull(),
+                url = item.rawStringValue("url").takeIf { it.isNotBlank() },
+            )
+        }.sortedWith(compareBy<AgentMessageAttachment> { it.partId }.thenBy { it.id })
+    }
+
+    private fun Map<*, *>.rawStringValue(key: String): String {
+        return when (val value = this[key]) {
+            null -> ""
+            is String -> value
+            is Number -> value.toString()
+            is Boolean -> value.toString()
+            else -> ""
+        }
     }
 
     private fun apiException(status: Int, response: String): AgentApiException {
@@ -451,23 +497,21 @@ fun agentApiErrorHandling(error: Throwable): AgentApiErrorHandling {
 }
 
 private object JsonSupport {
-    private val fieldPattern = Regex("\"([^\"]+)\"\\s*:\\s*(\"(?:\\\\.|[^\"])*\"|null|true|false|-?\\d+)")
-    private val objectPattern = Regex("\\{[^{}]*\\}")
-
     fun objectMap(json: String): Map<String, String> {
-        return fieldPattern.findAll(json).associate { match ->
-            val key = unescape(match.groupValues[1])
-            val raw = match.groupValues[2]
-            key to when {
-                raw == "null" -> ""
-                raw.startsWith('"') -> unescape(raw.substring(1, raw.length - 1))
-                else -> raw
-            }
-        }
+        return stringifyMap(objectNode(json))
     }
 
     fun objectList(json: String): List<Map<String, String>> {
-        return objectPattern.findAll(json).map { objectMap(it.value) }.toList()
+        return objectNodeList(json).map(::stringifyMap)
+    }
+
+    fun objectNode(json: String): Map<String, Any?> {
+        return asObject(Parser(json).parseValue()).orEmpty()
+    }
+
+    fun objectNodeList(json: String): List<Map<String, Any?>> {
+        val parsed = Parser(json).parseValue() as? List<*> ?: return emptyList()
+        return parsed.mapNotNull(::asObject)
     }
 
     fun escape(value: String): String {
@@ -487,28 +531,179 @@ private object JsonSupport {
         }
     }
 
-    private fun unescape(value: String): String {
-        return buildString {
-            var index = 0
-            while (index < value.length) {
-                val char = value[index]
-                if (char == '\\' && index + 1 < value.length) {
-                    when (val escaped = value[index + 1]) {
-                        '\\' -> append('\\')
-                        '"' -> append('"')
-                        'b' -> append('\b')
-                        'f' -> append('\u000C')
-                        'n' -> append('\n')
-                        'r' -> append('\r')
-                        't' -> append('\t')
-                        else -> append(escaped)
+    private fun stringifyMap(item: Map<String, Any?>): Map<String, String> {
+        return item.mapValues { (_, value) ->
+            when (value) {
+                null -> ""
+                is String -> value
+                is Number -> value.toString()
+                is Boolean -> value.toString()
+                else -> ""
+            }
+        }
+    }
+
+    private fun asObject(value: Any?): Map<String, Any?>? {
+        val raw = value as? Map<*, *> ?: return null
+        val result = linkedMapOf<String, Any?>()
+        for ((key, item) in raw) {
+            if (key !is String) return null
+            result[key] = item
+        }
+        return result
+    }
+
+    private class Parser(private val json: String) {
+        private var index = 0
+
+        fun parseValue(): Any? {
+            skipWhitespace()
+            return when (peek()) {
+                '{' -> parseObject()
+                '[' -> parseArray()
+                '"' -> parseString()
+                't' -> {
+                    consumeLiteral("true")
+                    true
+                }
+                'f' -> {
+                    consumeLiteral("false")
+                    false
+                }
+                'n' -> {
+                    consumeLiteral("null")
+                    null
+                }
+                else -> parseNumber()
+            }
+        }
+
+        private fun parseObject(): Map<String, Any?> {
+            expect('{')
+            val result = linkedMapOf<String, Any?>()
+            skipWhitespace()
+            if (peek() == '}') {
+                index += 1
+                return result
+            }
+            while (true) {
+                val key = parseString()
+                skipWhitespace()
+                expect(':')
+                result[key] = parseValue()
+                skipWhitespace()
+                when (peek()) {
+                    ',' -> {
+                        index += 1
+                        skipWhitespace()
                     }
-                    index += 2
-                } else {
-                    append(char)
-                    index += 1
+                    '}' -> {
+                        index += 1
+                        return result
+                    }
+                    else -> throw IllegalArgumentException("Invalid JSON object at $index")
                 }
             }
+        }
+
+        private fun parseArray(): List<Any?> {
+            expect('[')
+            val result = mutableListOf<Any?>()
+            skipWhitespace()
+            if (peek() == ']') {
+                index += 1
+                return result
+            }
+            while (true) {
+                result += parseValue()
+                skipWhitespace()
+                when (peek()) {
+                    ',' -> {
+                        index += 1
+                        skipWhitespace()
+                    }
+                    ']' -> {
+                        index += 1
+                        return result
+                    }
+                    else -> throw IllegalArgumentException("Invalid JSON array at $index")
+                }
+            }
+        }
+
+        private fun parseString(): String {
+            expect('"')
+            return buildString {
+                while (index < json.length) {
+                    val char = json[index++]
+                    when {
+                        char == '"' -> return@buildString
+                        char == '\\' && index < json.length -> appendEscaped()
+                        else -> append(char)
+                    }
+                }
+            }
+        }
+
+        private fun StringBuilder.appendEscaped() {
+            when (val escaped = json[index++]) {
+                '\\' -> append('\\')
+                '"' -> append('"')
+                '/' -> append('/')
+                'b' -> append('\b')
+                'f' -> append('\u000C')
+                'n' -> append('\n')
+                'r' -> append('\r')
+                't' -> append('\t')
+                'u' -> {
+                    val hex = json.substring(index, (index + 4).coerceAtMost(json.length))
+                    append(hex.toInt(16).toChar())
+                    index += 4
+                }
+                else -> append(escaped)
+            }
+        }
+
+        private fun parseNumber(): Number {
+            val start = index
+            if (peek() == '-') index += 1
+            while (peek()?.isDigit() == true) index += 1
+            if (peek() == '.') {
+                index += 1
+                while (peek()?.isDigit() == true) index += 1
+            }
+            if (peek() == 'e' || peek() == 'E') {
+                index += 1
+                if (peek() == '+' || peek() == '-') index += 1
+                while (peek()?.isDigit() == true) index += 1
+            }
+            val raw = json.substring(start, index)
+            return if (raw.contains('.') || raw.contains('e', ignoreCase = true)) {
+                raw.toDouble()
+            } else {
+                raw.toLong()
+            }
+        }
+
+        private fun consumeLiteral(literal: String) {
+            if (!json.startsWith(literal, index)) {
+                throw IllegalArgumentException("Expected $literal at $index")
+            }
+            index += literal.length
+        }
+
+        private fun expect(char: Char) {
+            skipWhitespace()
+            if (peek() != char) throw IllegalArgumentException("Expected $char at $index")
+            index += 1
+        }
+
+        private fun skipWhitespace() {
+            while (peek()?.isWhitespace() == true) index += 1
+        }
+
+        private fun peek(): Char? {
+            return json.getOrNull(index)
         }
     }
 }

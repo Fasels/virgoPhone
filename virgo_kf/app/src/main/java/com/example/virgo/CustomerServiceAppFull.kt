@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -11,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -62,7 +65,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -71,6 +77,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -78,6 +86,7 @@ import com.example.virgo.ui.theme.VirgoTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.URL
 
 private enum class FullHomeTab(
     val title: String,
@@ -764,6 +773,9 @@ private fun FullChatScreen(
     onEditContact: (AgentContact) -> Unit,
     onRetryLoad: () -> Unit,
 ) {
+    var selectedImagePreview by remember { mutableStateOf<AgentImagePreviewTarget?>(null) }
+    val uriHandler = LocalUriHandler.current
+
     Scaffold(
         topBar = {
             Surface(color = Color.White, shadowElevation = 1.dp) {
@@ -805,17 +817,33 @@ private fun FullChatScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(messages, key = { it.id }) { message ->
-                        FullMessageBubble(message)
+                        FullMessageBubble(
+                            message = message,
+                            onImagePreviewSelected = { selectedImagePreview = it },
+                        )
                     }
                 }
             }
         }
     }
+
+    selectedImagePreview?.let { target ->
+        FullImagePreviewDialog(
+            target = target,
+            onDismiss = { selectedImagePreview = null },
+            onOpenOriginal = { runCatching { uriHandler.openUri(target.url) } },
+        )
+    }
 }
 
 @Composable
-private fun FullMessageBubble(message: AgentMessage) {
+private fun FullMessageBubble(
+    message: AgentMessage,
+    onImagePreviewSelected: (AgentImagePreviewTarget) -> Unit,
+) {
     val isOutbound = message.direction == MessageDirection.Outbound
+    val hasText = message.text.isNotBlank()
+    val isPendingMms = message.messageType == AgentMessageType.Mms && message.attachments.isEmpty()
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         horizontalArrangement = if (isOutbound) Arrangement.End else Arrangement.Start,
@@ -825,14 +853,179 @@ private fun FullMessageBubble(message: AgentMessage) {
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth(0.78f),
         ) {
-            Text(
-                message.text,
-                color = if (isOutbound) Color.White else FullColors.TextPrimary,
-                fontSize = 15.sp,
-                modifier = Modifier.padding(12.dp),
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (hasText) {
+                    Text(
+                        message.text,
+                        color = if (isOutbound) Color.White else FullColors.TextPrimary,
+                        fontSize = 15.sp,
+                    )
+                }
+                if (isPendingMms) {
+                    FullAttachmentStatus("Image downloading", isOutbound)
+                }
+                message.attachments.forEach { attachment ->
+                    FullAttachmentPreview(attachment, isOutbound, onImagePreviewSelected)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullAttachmentPreview(
+    attachment: AgentMessageAttachment,
+    isOutbound: Boolean,
+    onImagePreviewSelected: (AgentImagePreviewTarget) -> Unit,
+) {
+    val url = attachment.url
+    if (url.isNullOrBlank()) {
+        FullAttachmentStatus("Image unavailable", isOutbound)
+        return
+    }
+    val previewTarget = attachment.imagePreviewTarget()
+    if (previewTarget == null) {
+        FullAttachmentLink(attachment.name ?: "Open attachment", url, isOutbound)
+        return
+    }
+
+    when (val state = rememberRemoteImage(url)) {
+        ImageLoadState.Loading -> FullAttachmentStatus("Loading image", isOutbound)
+        ImageLoadState.Error -> FullAttachmentLink("Open original image", previewTarget.url, isOutbound)
+        is ImageLoadState.Loaded -> {
+            Image(
+                bitmap = state.bitmap.asImageBitmap(),
+                contentDescription = previewTarget.description,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
+                    .clickable { onImagePreviewSelected(previewTarget) },
             )
         }
     }
+}
+
+@Composable
+private fun FullImagePreviewDialog(
+    target: AgentImagePreviewTarget,
+    onDismiss: () -> Unit,
+    onOpenOriginal: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (val state = rememberRemoteImage(target.url)) {
+                    ImageLoadState.Loading -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp)
+                            Spacer(Modifier.height(12.dp))
+                            Text("Loading image", color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+                    ImageLoadState.Error -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text("Image unavailable", color = Color.White, fontSize = 16.sp)
+                            Spacer(Modifier.height(12.dp))
+                            TextButton(onClick = onOpenOriginal) {
+                                Text("Open original", color = Color.White)
+                            }
+                        }
+                    }
+                    is ImageLoadState.Loaded -> {
+                        Image(
+                            bitmap = state.bitmap.asImageBitmap(),
+                            contentDescription = target.description,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 72.dp),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onOpenOriginal) {
+                        Text("Open original", color = Color.White)
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("Close", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullAttachmentLink(label: String, url: String, isOutbound: Boolean) {
+    val uriHandler = LocalUriHandler.current
+    Text(
+        text = label,
+        color = if (isOutbound) Color.White else FullColors.Green,
+        fontSize = 13.sp,
+        modifier = Modifier
+            .background(
+                if (isOutbound) Color.White.copy(alpha = 0.14f) else FullColors.AttachmentBackground,
+                RoundedCornerShape(8.dp),
+            )
+            .clickable { runCatching { uriHandler.openUri(url) } }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun FullAttachmentStatus(label: String, isOutbound: Boolean) {
+    Text(
+        text = label,
+        color = if (isOutbound) Color.White else FullColors.TextSecondary,
+        fontSize = 13.sp,
+        modifier = Modifier
+            .background(
+                if (isOutbound) Color.White.copy(alpha = 0.14f) else FullColors.AttachmentBackground,
+                RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun rememberRemoteImage(url: String): ImageLoadState {
+    var state by remember(url) { mutableStateOf<ImageLoadState>(ImageLoadState.Loading) }
+    LaunchedEffect(url) {
+        state = ImageLoadState.Loading
+        state = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL(url).openConnection().apply {
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                }
+                connection.getInputStream().use { input ->
+                    BitmapFactory.decodeStream(input)?.let(ImageLoadState::Loaded) ?: ImageLoadState.Error
+                }
+            }.getOrElse { ImageLoadState.Error }
+        }
+    }
+    return state
+}
+
+private sealed interface ImageLoadState {
+    data object Loading : ImageLoadState
+    data object Error : ImageLoadState
+    data class Loaded(val bitmap: Bitmap) : ImageLoadState
 }
 
 @Composable
@@ -1112,18 +1305,22 @@ private fun FullSimCardsTable(simCards: List<AgentSimCardItem>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().background(FullColors.Background).padding(vertical = 8.dp)) {
             FullSimCardCell("Phone number", weight = 1.35f, isHeader = true)
-            FullSimCardCell("Carrier", weight = 1f, isHeader = true)
+            FullSimCardCell("Remark", weight = 1f, isHeader = true)
             FullSimCardCell("Area", weight = 0.85f, isHeader = true)
         }
         simCards.forEach { simCard ->
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                 FullSimCardCell(simCard.phoneNumber ?: "Unread phone number", weight = 1.35f)
-                FullSimCardCell(simCard.carrierName ?: "Unknown carrier", weight = 1f)
+                FullSimCardCell(simCardRemarkDisplayText(simCard), weight = 1f)
                 FullSimCardCell(simCard.areas ?: "Unknown area", weight = 0.85f)
             }
             HorizontalDivider(color = FullColors.Background)
         }
     }
+}
+
+internal fun simCardRemarkDisplayText(simCard: AgentSimCardItem): String {
+    return simCard.customerRemark ?: "No remark"
 }
 
 @Composable
@@ -1184,6 +1381,7 @@ private object FullColors {
     val TextSecondary = Color(0xFF7A7D81)
     val Green = Color(0xFF21B35B)
     val Badge = Color(0xFFE5484D)
+    val AttachmentBackground = Color(0xFFF3F4F6)
 }
 
 @Preview(showBackground = true)

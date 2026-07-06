@@ -76,10 +76,57 @@ class AgentApiClientTest {
     }
 
     @Test
+    fun messagesMapMmsAttachmentsSortedByPartIdAndDefaultMissingAttachments() {
+        server.json(AgentApiPaths.conversationMessages("conv_1")) { exchange, body ->
+            seenRequests += exchange.seen(body)
+            """
+            [
+              {
+                "id":"msg_mms",
+                "conversationId":"conv_1",
+                "direction":"INBOUND",
+                "messageType":"MMS",
+                "textContent":null,
+                "state":"Received",
+                "createdAt":1800000000000,
+                "attachments":[
+                  {"id":"att_2","partId":2,"contentType":"image/png","name":null,"size":200,"url":"https://cdn.example.com/two.png"},
+                  {"id":"att_1","partId":1,"contentType":"image/jpeg","name":"one.jpg","size":100,"url":"https://cdn.example.com/one.jpg"}
+                ]
+              },
+              {
+                "id":"msg_sms",
+                "conversationId":"conv_1",
+                "direction":"OUTBOUND",
+                "messageType":"SMS",
+                "textContent":"Plain text",
+                "state":"Sent",
+                "createdAt":1800000000001
+              }
+            ]
+            """.trimIndent()
+        }
+        val client = AgentApiClient(baseUrl = baseUrl, tokenProvider = { "agent_token" })
+
+        val messages = client.messages("conv_1")
+
+        assertEquals(2, messages.size)
+        assertEquals(AgentMessageType.Mms, messages[0].messageType)
+        assertEquals("", messages[0].text)
+        assertEquals(listOf("att_1", "att_2"), messages[0].attachments.map { it.id })
+        assertEquals("image/jpeg", messages[0].attachments[0].contentType)
+        assertEquals("one.jpg", messages[0].attachments[0].name)
+        assertEquals(100L, messages[0].attachments[0].size)
+        assertEquals("https://cdn.example.com/one.jpg", messages[0].attachments[0].url)
+        assertEquals(AgentMessageType.Sms, messages[1].messageType)
+        assertEquals(emptyList<AgentMessageAttachment>(), messages[1].attachments)
+    }
+
+    @Test
     fun simCardsUsesBearerTokenAndAcceptsNullableFields() {
         server.json(AgentApiPaths.SimCards) { exchange, body ->
             seenRequests += exchange.seen(body)
-            """[{"id":"sim_1","phoneNumber":"+8613800000000","carrierName":"China Mobile","areas":"north"},{"id":"sim_2","phoneNumber":null,"carrierName":null,"areas":null}]"""
+            """[{"id":"sim_1","phoneNumber":"+8613800000000","carrierName":"China Mobile","areas":"north","customerRemark":"客服 A 专用"},{"id":"sim_2","phoneNumber":null,"carrierName":null,"areas":null,"customerRemark":null}]"""
         }
         val client = AgentApiClient(baseUrl = baseUrl, tokenProvider = { "agent_token" })
 
@@ -91,6 +138,7 @@ class AgentApiClientTest {
                 phoneNumber = "+8613800000000",
                 carrierName = "China Mobile",
                 areas = "north",
+                customerRemark = "客服 A 专用",
             ),
             simCards[0],
         )
