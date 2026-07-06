@@ -55,11 +55,11 @@ class AgentApiClientTest {
         }
         server.json(AgentApiPaths.Conversations) { exchange, body ->
             seenRequests += exchange.seen(body)
-            """[{"id":"conv_1","externalPhoneNumber":"+100","contactId":"contact_1","areas":"north","status":"OPEN","unreadCount":2,"lastMessagePreview":"Hello","lastMessageDirection":"INBOUND","lastMessageAt":1800000000000}]"""
+            """[{"id":"conv_1","externalPhoneNumber":"+100","servicePhoneNumber":"+8613800000101","contactId":"contact_1","areas":"north","status":"OPEN","unreadCount":2,"lastMessagePreview":"Hello","lastMessageDirection":"INBOUND","lastMessageAt":1800000000000}]"""
         }
         server.json(AgentApiPaths.conversationMessages("conv_1")) { exchange, body ->
             seenRequests += exchange.seen(body)
-            """[{"id":"msg_1","conversationId":"conv_1","direction":"INBOUND","messageType":"SMS","textContent":"Hello","state":"Received","fromPhoneNumber":"+100","toPhoneNumber":null,"createdAt":1800000000000,"receivedAt":1800000000000,"sentAt":null,"deliveredAt":null}]"""
+            """[{"id":"msg_1","conversationId":"conv_1","direction":"INBOUND","messageType":"SMS","textContent":"Hello","state":"Received","fromPhoneNumber":"+100","toPhoneNumber":null,"createdAt":1800000000000,"receivedAt":1800000000000,"sentAt":null,"deliveredAt":null,"customerSimCard":"+8613800000099","customerRemark":"south support line"}]"""
         }
         server.json(AgentApiPaths.Menus) { exchange, body ->
             seenRequests += exchange.seen(body)
@@ -69,8 +69,13 @@ class AgentApiClientTest {
         val client = AgentApiClient(baseUrl = baseUrl, tokenProvider = { "agent_token" })
 
         assertEquals("VIP", client.contacts().single().remark)
-        assertEquals(2, client.conversations().single().unreadCount)
-        assertEquals(MessageDirection.Inbound, client.messages("conv_1").single().direction)
+        val conversation = client.conversations().single()
+        assertEquals(2, conversation.unreadCount)
+        assertEquals("+8613800000101", conversation.servicePhoneNumber)
+        val message = client.messages("conv_1").single()
+        assertEquals(MessageDirection.Inbound, message.direction)
+        assertEquals("+8613800000099", message.customerSimCard)
+        assertEquals("south support line", message.customerRemark)
         assertEquals("Please wait.", client.menus().single().menu)
         assertTrue(seenRequests.all { it.authorization == "Bearer agent_token" })
     }

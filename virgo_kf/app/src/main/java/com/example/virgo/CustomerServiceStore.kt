@@ -35,6 +35,7 @@ data class AgentConversation(
     val unreadCount: Int,
     val lastMessagePreview: String,
     val lastMessageAt: String,
+    val servicePhoneNumber: String? = null,
 )
 
 data class AgentMessage(
@@ -46,6 +47,8 @@ data class AgentMessage(
     val time: String,
     val messageType: AgentMessageType = AgentMessageType.Sms,
     val attachments: List<AgentMessageAttachment> = emptyList(),
+    val customerSimCard: String? = null,
+    val customerRemark: String? = null,
 )
 
 data class AgentMessageAttachment(
@@ -367,4 +370,20 @@ fun AgentMessageAttachment.imagePreviewTarget(): AgentImagePreviewTarget? {
         url = imageUrl,
         description = name?.takeIf { it.isNotBlank() } ?: "Image message",
     )
+}
+
+internal fun conversationServicePhoneDisplayText(conversation: AgentConversation): String {
+    val servicePhoneNumber = conversation.servicePhoneNumber?.trim()?.takeIf { it.isNotBlank() }
+    return "Responsible phone: ${servicePhoneNumber ?: "Unassigned"}"
+}
+
+internal fun customerServiceInfoDisplayText(messages: List<AgentMessage>): String? {
+    val message = messages.asReversed().firstOrNull {
+        !it.customerSimCard.isNullOrBlank() || !it.customerRemark.isNullOrBlank()
+    } ?: return null
+    val parts = listOfNotNull(
+        message.customerSimCard?.trim()?.takeIf { it.isNotBlank() }?.let { "Responsible phone: $it" },
+        message.customerRemark?.trim()?.takeIf { it.isNotBlank() }?.let { "Remark: $it" },
+    )
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }

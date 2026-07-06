@@ -140,6 +140,55 @@ class CustomerServiceStoreTest {
     }
 
     @Test
+    fun customerServiceInfoDisplayUsesLatestMessageWithSimCardOrRemark() {
+        val messages = listOf(
+            AgentMessage(
+                id = "msg_1",
+                conversationId = "conv_1",
+                direction = MessageDirection.Inbound,
+                text = "Older",
+                state = "Received",
+                time = "09:35",
+                customerSimCard = "+8613800000001",
+                customerRemark = "old line",
+            ),
+            AgentMessage(
+                id = "msg_2",
+                conversationId = "conv_1",
+                direction = MessageDirection.Outbound,
+                text = "Newer",
+                state = "Delivered",
+                time = "09:36",
+                customerSimCard = "+8613800000099",
+                customerRemark = "south support line",
+            ),
+        )
+
+        assertEquals(
+            "Responsible phone: +8613800000099 · Remark: south support line",
+            customerServiceInfoDisplayText(messages),
+        )
+    }
+
+    @Test
+    fun customerServiceInfoDisplayOmitsMissingFields() {
+        val messages = listOf(
+            AgentMessage(
+                id = "msg_1",
+                conversationId = "conv_1",
+                direction = MessageDirection.Inbound,
+                text = "Hello",
+                state = "Received",
+                time = "09:35",
+                customerSimCard = "+8613800000099",
+            ),
+        )
+
+        assertEquals("Responsible phone: +8613800000099", customerServiceInfoDisplayText(messages))
+        assertNull(customerServiceInfoDisplayText(emptyList()))
+    }
+
+    @Test
     fun updateRemarkChangesContactTitleAndConversationTitle() {
         val store = populatedStore()
 
@@ -181,6 +230,31 @@ class CustomerServiceStoreTest {
 
         assertEquals("+1 555 0101", store.conversationPhoneNumber("conv_1"))
         assertEquals("+1 555 0102", store.conversationPhoneNumber("conv_2"))
+    }
+
+    @Test
+    fun conversationServicePhoneDisplayShowsAssignedNumberOrFallback() {
+        assertEquals(
+            "Responsible phone: +8613800000101",
+            conversationServicePhoneDisplayText(
+                AgentConversation(
+                    id = "conv_1",
+                    contactId = "contact_1",
+                    externalPhoneNumber = "+1 555 0101",
+                    areas = "north",
+                    unreadCount = 0,
+                    lastMessagePreview = "Hi",
+                    lastMessageAt = "09:42",
+                    servicePhoneNumber = "+8613800000101",
+                ),
+            ),
+        )
+        assertEquals(
+            "Responsible phone: Unassigned",
+            conversationServicePhoneDisplayText(
+                AgentConversation("conv_2", "contact_2", "+1 555 0102", "north", 0, "Hi", "09:43"),
+            ),
+        )
     }
 
     @Test

@@ -360,13 +360,15 @@ fun CustomerServiceAppFull(
                 val canSend = searchResult?.let { canSendForSearchResult(it, simCards) } ?: true
                 val editableContact = store.contactForConversation(conversationId)
                     ?: searchResult?.contactPhoneNumber?.let { store.contactForPhoneNumber(it) }
+                val messages = store.messagesFor(conversationId)
                 FullChatScreen(
                     title = searchResult?.searchResultTitle() ?: store.conversationTitle(conversationId),
                     editableContact = editableContact,
-                    messages = store.messagesFor(conversationId),
+                    messages = messages,
                     menus = store.menus,
                     draft = store.draft,
                     errorMessage = errorMessage,
+                    customerServiceInfoText = customerServiceInfoDisplayText(messages),
                     canSend = canSend,
                     sendDisabledMessage = "当前账号不负责该客服号码，不能发送信息",
                     onBack = {
@@ -735,6 +737,14 @@ private fun FullConversationList(store: CustomerServiceStore, onConversationSele
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        conversationServicePhoneDisplayText(conversation),
+                        color = FullColors.TextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
@@ -765,6 +775,7 @@ private fun FullChatScreen(
     menus: List<AgentMenu>,
     draft: String,
     errorMessage: String?,
+    customerServiceInfoText: String?,
     canSend: Boolean,
     sendDisabledMessage: String,
     onBack: () -> Unit,
@@ -803,9 +814,9 @@ private fun FullChatScreen(
         },
         bottomBar = {
             if (canSend) {
-                FullChatInputBar(menus, draft, onDraftChange, onSend)
+                FullChatInputBar(menus, draft, customerServiceInfoText, onDraftChange, onSend)
             } else {
-                FullReadOnlyChatBar(sendDisabledMessage)
+                FullReadOnlyChatBar(sendDisabledMessage, customerServiceInfoText)
             }
         },
         containerColor = FullColors.Background,
@@ -1029,7 +1040,7 @@ private sealed interface ImageLoadState {
 }
 
 @Composable
-private fun FullReadOnlyChatBar(message: String) {
+private fun FullReadOnlyChatBar(message: String, customerServiceInfoText: String?) {
     Surface(color = Color.White, shadowElevation = 1.dp) {
         Column(
             modifier = Modifier
@@ -1043,6 +1054,7 @@ private fun FullReadOnlyChatBar(message: String) {
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
             )
+            FullCustomerServiceInfoLine(customerServiceInfoText)
         }
     }
 }
@@ -1051,6 +1063,7 @@ private fun FullReadOnlyChatBar(message: String) {
 private fun FullChatInputBar(
     menus: List<AgentMenu>,
     draft: String,
+    customerServiceInfoText: String?,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
 ) {
@@ -1115,6 +1128,7 @@ private fun FullChatInputBar(
                 Text("Send")
             }
         }
+        FullCustomerServiceInfoLine(customerServiceInfoText)
     }
 
     selectedReminder?.let { menu ->
@@ -1129,6 +1143,20 @@ private fun FullChatInputBar(
             },
         )
     }
+}
+
+@Composable
+private fun FullCustomerServiceInfoLine(text: String?) {
+    val displayText = text?.takeIf { it.isNotBlank() } ?: return
+    Spacer(Modifier.height(6.dp))
+    Text(
+        displayText,
+        color = FullColors.TextSecondary,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

@@ -120,6 +120,7 @@ class AgentApiClient(
                 unreadCount = item["unreadCount"]?.toIntOrNull() ?: 0,
                 lastMessagePreview = item["lastMessagePreview"].orEmpty(),
                 lastMessageAt = item["lastMessageAt"]?.let(::formatTimestamp).orEmpty(),
+                servicePhoneNumber = item["servicePhoneNumber"].toNullableField(),
             )
         }
     }
@@ -366,6 +367,8 @@ class AgentApiClient(
             time = item.stringValue("createdAt").let(::formatTimestamp),
             messageType = messageType,
             attachments = item.attachments(),
+            customerSimCard = item.stringValue("customerSimCard").takeIf { it.isNotBlank() },
+            customerRemark = item.stringValue("customerRemark").takeIf { it.isNotBlank() },
         )
     }
 
