@@ -75,7 +75,7 @@ class MmsContentObserver : KoinComponent {
             Uri.parse("content://mms"),
             arrayOf("_id"),
             "_id > ? AND m_type = 132 AND msg_box = 1",
-            arrayOf(mark.toString()),
+            arrayOf(scanStartId(mark).toString()),
             "_id ASC"
         ) ?: return
 
@@ -92,7 +92,7 @@ class MmsContentObserver : KoinComponent {
                         mapOf("mmsId" to mmsId)
                     )
                 }
-                storage.mmsLastProcessedID = mmsId
+                storage.mmsLastProcessedID = maxOf(storage.mmsLastProcessedID, mmsId)
             }
         }
     }
@@ -124,5 +124,10 @@ class MmsContentObserver : KoinComponent {
 
     companion object {
         private const val TAG = "MmsContentObserver"
+        private const val MMS_SCAN_REWIND_COUNT = 20L
+
+        internal fun scanStartId(lastProcessedId: Long): Long {
+            return (lastProcessedId - MMS_SCAN_REWIND_COUNT).coerceAtLeast(0L)
+        }
     }
 }
