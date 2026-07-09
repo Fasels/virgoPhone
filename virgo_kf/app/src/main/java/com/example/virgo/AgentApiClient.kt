@@ -198,6 +198,15 @@ class AgentApiClient(
         return mapMessage(JsonSupport.objectNode(response), conversationId)
     }
 
+    fun replyAndLoadMessages(
+        conversationId: String,
+        text: String,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+    ): List<AgentMessage> {
+        reply(conversationId, text, idempotencyKey)
+        return messages(conversationId)
+    }
+
     fun listenEvents(onInboundMessage: (AgentInboundMessageEvent) -> Unit) {
         val connection = openConnection("GET", AgentApiPaths.Events, requiresAuth = true)
         connection.setRequestProperty("Accept", "text/event-stream")

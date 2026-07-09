@@ -217,6 +217,34 @@ class AgentApiClientTest {
     }
 
     @Test
+    fun replyAndLoadMessagesRefreshesAfterAcceptedReplyResponse() {
+        server.json(AgentApiPaths.conversationMessages("conv_1")) { exchange, body ->
+            seenRequests += exchange.seen(body)
+            when (exchange.requestMethod) {
+                "POST" -> {
+                    assertEquals("""{"text":"Hello"}""", body)
+                    assertEquals("send-key-1", exchange.requestHeaders.getFirst("Idempotency-Key"))
+                    """{"ok":true}"""
+                }
+                "GET" -> {
+                    assertEquals("", body)
+                    """[{"id":"msg_out","conversationId":"conv_1","direction":"OUTBOUND","textContent":"Hello","state":"Sent","createdAt":1800000000000}]"""
+                }
+                else -> error("Unexpected method ${exchange.requestMethod}")
+            }
+        }
+        val client = AgentApiClient(baseUrl = baseUrl, tokenProvider = { "agent_token" })
+
+        val messages = client.replyAndLoadMessages("conv_1", "Hello", "send-key-1")
+
+        assertEquals(listOf("POST", "GET"), seenRequests.map { it.method })
+        assertEquals("msg_out", messages.single().id)
+        assertEquals("Hello", messages.single().text)
+        assertEquals(MessageDirection.Outbound, messages.single().direction)
+        assertTrue(seenRequests.all { it.authorization == "Bearer agent_token" })
+    }
+
+    @Test
     fun clientRecordsServerLinkLogsForSuccessfulAndFailedRequests() {
         server.json(AgentApiPaths.Me) { exchange, body ->
             seenRequests += exchange.seen(body)

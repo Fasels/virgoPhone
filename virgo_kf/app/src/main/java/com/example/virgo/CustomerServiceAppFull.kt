@@ -268,10 +268,10 @@ fun CustomerServiceAppFull(
             errorMessage = null
             runCatching {
                 withContext(Dispatchers.IO) {
-                    apiClient.reply(conversationId, content)
+                    apiClient.replyAndLoadMessages(conversationId, content)
                 }
-            }.onSuccess { message ->
-                store.appendMessage(message)
+            }.onSuccess { messages ->
+                store.replaceMessages(conversationId, messages)
                 store.setDraft("")
                 touchData()
             }.onFailure(::handleError)
