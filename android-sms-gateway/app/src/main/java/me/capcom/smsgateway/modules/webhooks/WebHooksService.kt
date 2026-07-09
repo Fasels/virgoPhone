@@ -61,12 +61,13 @@ class WebHooksService(
     }
 
     fun sync(source: EntitySource, webHooks: List<WebHookDTO>) {
+        val supportedWebHooks = webHooks.filter { isSupportedEvent(it.event) }
         val ids = webHooksDao.selectBySource(source).map { it.id }.toSet()
-        if (webHooks.any { it.id !in ids && it.event == WebHookEvent.SmsReceived }) {
+        if (supportedWebHooks.any { it.id !in ids && it.event == WebHookEvent.SmsReceived }) {
             notifyUser()
         }
 
-        webHooksDao.replaceAll(source, webHooks.map {
+        webHooksDao.replaceAll(source, supportedWebHooks.map {
             WebHook(
                 id = requireNotNull(it.id) { "ID is required for sync" },
                 url = it.url,
@@ -89,7 +90,7 @@ class WebHooksService(
             throw IllegalArgumentException("url must start with https:// or http://127.0.0.1")
         }
         
-        if (webHook.event !in WebHookEvent.values()) {
+        if (!isSupportedEvent(webHook.event)) {
             throw IllegalArgumentException(
                 "Unsupported event"
             )
@@ -124,6 +125,16 @@ class WebHooksService(
     }
 
     fun emit(context: Context, event: WebHookEvent, payload: Any) {
+        if (!isSupportedEvent(event)) {
+            logsService.insert(
+                LogEntry.Priority.DEBUG,
+                NAME,
+                "Webhook event is disabled, skipping",
+                mapOf("event" to event.name)
+            )
+            return
+        }
+
         val webhooksToProcess = webHooksDao.selectByEvent(event)
         var queuedCount = 0
         var skippedCount = 0
@@ -217,5 +228,18 @@ class WebHooksService(
             NotificationsService.NOTIFICATION_ID_SMS_RECEIVED_WEBHOOK,
             context.getString(R.string.new_sms_received_webhooks_registered)
         )
+    }
+
+    companion object {
+        private val SUPPORTED_EVENTS = setOf(
+            WebHookEvent.SmsReceived,
+            WebHookEvent.SmsSent,
+            WebHookEvent.SmsDelivered,
+            WebHookEvent.SmsFailed,
+            WebHookEvent.SystemPing,
+            WebHookEvent.SmsDataReceived,
+        )
+
+        fun isSupportedEvent(event: WebHookEvent): Boolean = event in SUPPORTED_EVENTS
     }
 }

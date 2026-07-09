@@ -16,8 +16,6 @@ import me.capcom.smsgateway.modules.logs.db.LogEntry
 import me.capcom.smsgateway.modules.receiver.data.InboxMessage
 import me.capcom.smsgateway.modules.webhooks.WebHooksService
 import me.capcom.smsgateway.modules.webhooks.domain.WebHookEvent
-import me.capcom.smsgateway.modules.webhooks.payload.MmsDownloadedPayload
-import me.capcom.smsgateway.modules.webhooks.payload.MmsReceivedPayload
 import me.capcom.smsgateway.modules.webhooks.payload.SmsEventPayload
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -30,19 +28,14 @@ class ReceiverService : KoinComponent {
     private val gatewayService: GatewayService by inject()
 
     private val eventsReceiver by lazy { EventsReceiver() }
-    private val mmsContentObserver by lazy { MmsContentObserver() }
 
     fun start(context: Context) {
         MessagesReceiver.register(context)
-        MmsReceiver.register(context)
         eventsReceiver.start()
-        mmsContentObserver.start()
     }
 
     fun stop(context: Context) {
-        mmsContentObserver.stop()
         eventsReceiver.stop()
-        MmsReceiver.unregister(context)
         MessagesReceiver.unregister(context)
     }
 
@@ -79,6 +72,21 @@ class ReceiverService : KoinComponent {
             "ReceiverService::process - message received",
             mapOf("message" to message)
         )
+
+        when (message) {
+            is InboxMessage.MmsHeaders,
+            is InboxMessage.MMS -> {
+                logsService.insert(
+                    LogEntry.Priority.DEBUG,
+                    MODULE_NAME,
+                    "ReceiverService::process - MMS support disabled, skipping",
+                    mapOf("message" to message)
+                )
+                return
+            }
+
+            else -> Unit
+        }
 
         // Dedup safety net: skip if this exact message was already processed
         if (incomingMessagesService.isMessageProcessed(message)) {
@@ -123,36 +131,8 @@ class ReceiverService : KoinComponent {
                     recipient = recipient,
                 )
 
-                is InboxMessage.MmsHeaders -> WebHookEvent.MmsReceived to MmsReceivedPayload(
-                    messageId = message.messageId ?: message.transactionId,
-                    simNumber = simNumber,
-                    transactionId = message.transactionId,
-                    subject = message.subject,
-                    size = message.size,
-                    contentClass = message.contentClass,
-                    receivedAt = message.date,
-                    sender = incoming.sender,
-                    recipient = recipient,
-                )
-
-                is InboxMessage.MMS -> WebHookEvent.MmsDownloaded to MmsDownloadedPayload(
-                    messageId = message.messageId,
-                    sender = incoming.sender,
-                    recipient = recipient,
-                    simNumber = simNumber,
-                    body = message.body,
-                    subject = message.subject,
-                    attachments = message.attachments.map {
-                        MmsDownloadedPayload.Attachment(
-                            partId = it.partId,
-                            contentType = it.contentType,
-                            name = it.name,
-                            size = it.size,
-                            data = it.data
-                        )
-                    },
-                    receivedAt = message.date,
-                )
+                is InboxMessage.MmsHeaders,
+                is InboxMessage.MMS -> return
             }
 
             webHooksService.emit(context, type, payload)
@@ -227,9 +207,6 @@ class ReceiverService : KoinComponent {
             if (IncomingMessageType.SMS in messageTypes) {
                 addAll(selectSms(context, period))
             }
-            if (IncomingMessageType.MMS in messageTypes) {
-                addAll(selectMms(context, period))
-            }
         }.sortedBy { it.date.time }
 
         logsService.insert(
@@ -290,51 +267,4 @@ class ReceiverService : KoinComponent {
         return messages
     }
 
-    private fun selectMms(context: Context, period: Pair<Date, Date>): List<InboxMessage> {
-        val startSeconds = period.first.time / 1000
-        val endSeconds = period.second.time / 1000
-
-        val projection = arrayOf(Telephony.Mms._ID)
-        // m_type 132 = retrieve-conf (fully downloaded MMS); date is in seconds
-        val selection = "${Telephony.Mms.MESSAGE_TYPE} = 132 AND " +
-                "${Telephony.Mms.DATE} >= ? AND ${Telephony.Mms.DATE} <= ?"
-        val selectionArgs = arrayOf(startSeconds.toString(), endSeconds.toString())
-
-        val cursor = context.contentResolver.query(
-            Telephony.Mms.Inbox.CONTENT_URI,
-            projection,
-            selection,
-            selectionArgs,
-            "${Telephony.Mms.DATE} ASC, ${Telephony.Mms._ID} ASC"
-        ) ?: return emptyList()
-
-        val messages = mutableListOf<InboxMessage>()
-        cursor.use { c ->
-            while (c.moveToNext()) {
-                val mmsId = c.getLong(0)
-                val message = MmsContentReader.read(context, mmsId) ?: continue
-                messages.add(
-                    InboxMessage.MMS(
-                        messageId = mmsId.toString(),
-                        body = message.body,
-                        subject = message.subject,
-                        attachments = message.attachments.map {
-                            InboxMessage.MMS.Attachment(
-                                partId = it.partId,
-                                contentType = it.contentType,
-                                name = it.name,
-                                size = it.size,
-                                data = it.data
-                            )
-                        },
-                        address = message.sender,
-                        date = message.date,
-                        subscriptionId = message.subscriptionId
-                    )
-                )
-            }
-        }
-
-        return messages
-    }
 }

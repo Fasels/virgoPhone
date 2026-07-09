@@ -1,116 +1,6 @@
 {
   "components": {
     "schemas": {
-      "MmsDownloadedAttachment": {
-        "properties": {
-          "contentType": {
-            "description": "MIME type of the attachment (e.g. image/jpeg, audio/amr).",
-            "type": "string"
-          },
-          "data": {
-            "description": "Base64-encoded attachment data, null if unavailable.",
-            "format": "byte",
-            "nullable": true,
-            "pattern": "^[\\w\\d+\\/=]*$",
-            "type": "string"
-          },
-          "name": {
-            "description": "Filename of the attachment, if present.",
-            "nullable": true,
-            "type": "string"
-          },
-          "partId": {
-            "description": "The _id from content://mms/part.",
-            "type": "integer"
-          },
-          "size": {
-            "description": "Size in bytes, 0 if unknown.",
-            "nullable": true,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "partId",
-          "contentType"
-        ],
-        "type": "object"
-      },
-      "MmsDownloadedPayload": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/SmsEventPayload"
-          },
-          {
-            "properties": {
-              "attachments": {
-                "description": "Metadata for non-text MMS parts, including optional Base64 content.",
-                "items": {
-                  "$ref": "#/components/schemas/MmsDownloadedAttachment"
-                },
-                "type": "array"
-              },
-              "body": {
-                "description": "Aggregated text content of the MMS message.",
-                "nullable": true,
-                "type": "string"
-              },
-              "receivedAt": {
-                "description": "The timestamp when the MMS message was received.",
-                "format": "date-time",
-                "type": "string"
-              },
-              "subject": {
-                "description": "Message subject line.",
-                "nullable": true,
-                "type": "string"
-              }
-            },
-            "required": [
-              "attachments",
-              "receivedAt"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "Payload of `mms:downloaded` event. Includes message body and attachment metadata extracted from the content provider after the MMS has been fully downloaded.",
-        "title": "MmsDownloadedPayload"
-      },
-      "MmsReceivedPayload": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/SmsEventPayload"
-          },
-          {
-            "properties": {
-              "contentClass": {
-                "description": "MMS content classification",
-                "type": "string"
-              },
-              "receivedAt": {
-                "description": "The timestamp when the MMS message was received.",
-                "format": "date-time",
-                "type": "string"
-              },
-              "size": {
-                "description": "Attachment size in bytes",
-                "type": "integer"
-              },
-              "subject": {
-                "description": "Message subject line",
-                "nullable": true,
-                "type": "string"
-              },
-              "transactionId": {
-                "description": "Unique MMS transaction identifier",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          }
-        ],
-        "description": "Payload of `mms:received` event.",
-        "title": "MmsReceivedPayload"
-      },
       "SmsDataReceivedPayload": {
         "allOf": [
           {
@@ -1263,14 +1153,10 @@
           "sms:sent",
           "sms:delivered",
           "sms:failed",
-          "system:ping",
-          "mms:received",
-          "mms:downloaded"
+          "system:ping"
         ],
         "type": "string",
         "x-enum-comments": {
-          "WebhookEventMmsDownloaded": "Triggered when an MMS is downloaded.",
-          "WebhookEventMmsReceived": "Triggered when an MMS is received.",
           "WebhookEventSmsDataReceived": "Triggered when a data SMS is received.",
           "WebhookEventSmsDelivered": "Triggered when an SMS is delivered.",
           "WebhookEventSmsFailed": "Triggered when an SMS processing fails.",
@@ -1284,9 +1170,7 @@
           "Triggered when an SMS is sent.",
           "Triggered when an SMS is delivered.",
           "Triggered when an SMS processing fails.",
-          "Triggered when the device pings the server.",
-          "Triggered when an MMS is received.",
-          "Triggered when an MMS is downloaded."
+          "Triggered when the device pings the server."
         ],
         "x-enum-varnames": [
           "WebhookEventSmsReceived",
@@ -1294,9 +1178,7 @@
           "WebhookEventSmsSent",
           "WebhookEventSmsDelivered",
           "WebhookEventSmsFailed",
-          "WebhookEventSystemPing",
-          "WebhookEventMmsReceived",
-          "WebhookEventMmsDownloaded"
+          "WebhookEventSystemPing"
         ]
       },
       "SmsReceivedPayload": {
@@ -1385,12 +1267,6 @@
               },
               {
                 "$ref": "#/components/schemas/SmsDataReceivedPayload"
-              },
-              {
-                "$ref": "#/components/schemas/MmsReceivedPayload"
-              },
-              {
-                "$ref": "#/components/schemas/MmsDownloadedPayload"
               }
             ]
           },

@@ -25,7 +25,7 @@ data class InboxRefreshRequest(
             throw IllegalArgumentException("since must be before until")
         }
 
-        val allowed = setOf(IncomingMessageType.SMS, IncomingMessageType.MMS)
+        val allowed = setOf(IncomingMessageType.SMS)
         if (messageTypes != null && messageTypes.isEmpty()) {
             throw IllegalArgumentException("messageTypes must not be empty")
         }

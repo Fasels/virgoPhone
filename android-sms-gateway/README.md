@@ -91,10 +91,9 @@ SMS Gateway turns your Android smartphone into an SMS gateway. It's a lightweigh
 
 - 📜 **Multipart messages:** Send long messages with auto-partitioning.
 - 📊 **Message status tracking:** Monitor the status of sent messages in real-time.
-- 📥 **Incoming messages viewer:** View all received SMS, Data SMS, and MMS messages directly in the app with organized tabs and statistics.
-- 🔔 **Real-time incoming message notifications:** Receive instant SMS and MMS notifications via webhooks.
+- 📥 **Incoming messages viewer:** View all received SMS and Data SMS messages directly in the app with organized tabs and statistics.
+- 🔔 **Real-time incoming message notifications:** Receive instant SMS notifications via webhooks.
 - 📖 **Read received messages:** Access [previously received messages](https://docs.sms-gate.app/features/reading-messages/) via the same webhooks used for real-time notifications.
-- 📎 **MMS download notifications:** Receive webhook notifications when MMS messages are fully downloaded, including message body and attachments.
 
 🔒 Security and Privacy:
 
@@ -157,7 +156,6 @@ To use the application, you need to grant the following permissions:
 - **READ_PHONE_STATE**: This permission is optional. If you want to select the SIM card, you can grant this permission.
 - **READ_SMS**: This permission is optional. If you want to read previous SMS messages, you need to grant this permission.
 - **RECEIVE_SMS**: This permission is optional. If you want to receive webhooks on incoming SMS, you need to grant this permission.
-- **RECEIVE_MMS**, **RECEIVE_WAP_PUSH**: This permissions are optional. If you want to receive webhooks on incoming MMS messages, you need to grant these permissions.
 
 ### Installation from APK
 
@@ -239,7 +237,7 @@ For further privacy, you can deploy your own private server. See the [Private Se
 
 ### Webhooks
 
-Use webhooks to receive notifications for messaging events (e.g., incoming SMS and MMS).
+Use webhooks to receive notifications for messaging events (e.g., incoming SMS).
 
 #### Supported Events
 
@@ -250,8 +248,6 @@ Use webhooks to receive notifications for messaging events (e.g., incoming SMS a
 | `sms:delivered`     | Triggered when an SMS message is delivered                                  |
 | `sms:failed`        | Triggered when an SMS message fails to send                                 |
 | `sms:data-received` | Triggered when a data SMS is received                                       |
-| `mms:received`      | Triggered when an MMS notification is received (before download)            |
-| `mms:downloaded`    | Triggered when an MMS message is fully downloaded with body and attachments |
 | `system:ping`       | Periodic heartbeat event                                                    |
 
 #### Setting Up Webhooks

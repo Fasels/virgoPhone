@@ -26,6 +26,7 @@ class MessagesExportRequestedEvent(
 
     companion object {
         const val NAME = "MessagesExportRequestedEvent"
+        private val SUPPORTED_MESSAGE_TYPES = setOf(IncomingMessageType.SMS)
 
         fun withPayload(payload: String): MessagesExportRequestedEvent {
             val obj = GsonBuilder().configure().create().fromJson(payload, Payload::class.java)
@@ -41,7 +42,10 @@ class MessagesExportRequestedEvent(
             return MessagesExportRequestedEvent(
                 since = obj.since,
                 until = obj.until,
-                messageTypes = messageTypes ?: setOf(IncomingMessageType.SMS),
+                messageTypes = messageTypes
+                    ?.intersect(SUPPORTED_MESSAGE_TYPES)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: SUPPORTED_MESSAGE_TYPES,
                 triggerWebhooks = obj.triggerWebhooks ?: true,
             )
         }
