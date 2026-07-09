@@ -42,7 +42,7 @@ class GatewaySettings(
     val serverUrl: String
         get() = storage.get<String?>(CLOUD_URL) ?: PUBLIC_URL
     val privateToken: String?
-        get() = storage.get<String>(PRIVATE_TOKEN)
+        get() = storage.get<String>(PRIVATE_TOKEN) ?: PRIVATE_TOKEN_DEFAULT
 
     val notificationChannel: NotificationChannel
         get() = storage.get<NotificationChannel>(NOTIFICATION_CHANNEL) ?: NotificationChannel.AUTO
@@ -56,7 +56,8 @@ class GatewaySettings(
         private const val PRIVATE_TOKEN = "private_token"
         private const val NOTIFICATION_CHANNEL = "notification_channel"
 
-        const val PUBLIC_URL = "https://api.syzygium.net/mobile/v1"
+        const val PUBLIC_URL = "http://192.168.50.24:8001/mobile/v1"
+        const val PRIVATE_TOKEN_DEFAULT = "123"
     }
 
     override fun export(): Map<String, *> {
@@ -71,8 +72,8 @@ class GatewaySettings(
             when (it.key) {
                 CLOUD_URL -> {
                     val url = it.value?.toString() ?: PUBLIC_URL
-                    if (url != null && !url.startsWith("https://")) {
-                        throw IllegalArgumentException("url must start with https://")
+                    if (url != null && !url.startsWith("https://") && !url.startsWith("http://")) {
+                        throw IllegalArgumentException("url must start with http:// or https://")
                     }
 
                     val changed = serverUrl != url

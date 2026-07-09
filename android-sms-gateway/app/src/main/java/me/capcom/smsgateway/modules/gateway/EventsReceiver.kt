@@ -88,7 +88,6 @@ class EventsReceiver : EventsReceiver() {
                     Log.d("EventsReceiver", "Event: $it")
 
                     if (!settings.enabled) return@collect
-                    if (settings.fcmToken != null) return@collect
 
                     SSEForegroundService.start(get())
                 }

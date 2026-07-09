@@ -19,6 +19,9 @@ object MmsContentReader {
         val date: Date,
         val attachments: List<MmsAttachment>,
         val subscriptionId: Int?,
+        val totalPartCount: Int,
+        val textPartCount: Int,
+        val smilPartCount: Int,
     )
 
     data class MmsAttachment(
@@ -80,14 +83,19 @@ object MmsContentReader {
 
         val bodyParts = mutableListOf<String>()
         val attachments = mutableListOf<MmsAttachment>()
+        var totalPartCount = 0
+        var textPartCount = 0
+        var smilPartCount = 0
 
         partCursor?.use { c ->
             while (c.moveToNext()) {
+                totalPartCount++
                 val partId = c.getLong(0)
                 val contentType = c.getString(1) ?: continue
                 val mimeType = contentType.substringBefore(";").trim()
 
                 if (mimeType.equals("text/plain", ignoreCase = true)) {
+                    textPartCount++
                     val text = c.getString(6)?.let {
                         readTextPart(resolver, partId, contentType)
                     }
@@ -100,23 +108,26 @@ object MmsContentReader {
                     continue
                 }
 
-                if (!mimeType.equals("application/smil", ignoreCase = true)) {
-                    val name = c.getString(3)
-                        ?: c.getString(4)
-                        ?: c.getString(5)
-                    val dataPath = c.getString(6)
-                    val size = readPartSize(resolver, partId, dataPath)
-
-                    attachments.add(
-                        MmsAttachment(
-                            partId = partId,
-                            contentType = contentType,
-                            name = name,
-                            size = size,
-                            data = readPartData(resolver, partId),
-                        )
-                    )
+                if (mimeType.equals("application/smil", ignoreCase = true)) {
+                    smilPartCount++
+                    continue
                 }
+
+                val name = c.getString(3)
+                    ?: c.getString(4)
+                    ?: c.getString(5)
+                val dataPath = c.getString(6)
+                val size = readPartSize(resolver, partId, dataPath)
+
+                attachments.add(
+                    MmsAttachment(
+                        partId = partId,
+                        contentType = contentType,
+                        name = name,
+                        size = size,
+                        data = readPartData(resolver, partId),
+                    )
+                )
             }
         }
 
@@ -128,6 +139,9 @@ object MmsContentReader {
             date = date,
             attachments = attachments,
             subscriptionId = subscriptionId,
+            totalPartCount = totalPartCount,
+            textPartCount = textPartCount,
+            smilPartCount = smilPartCount,
         )
     }
 

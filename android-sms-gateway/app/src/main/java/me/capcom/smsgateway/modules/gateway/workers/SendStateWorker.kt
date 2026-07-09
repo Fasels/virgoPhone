@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import io.ktor.client.plugins.ClientRequestException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.capcom.smsgateway.modules.gateway.GatewayService
@@ -22,6 +23,7 @@ class SendStateWorker(appContext: Context, params: WorkerParameters) :
     CoroutineWorker(appContext, params), KoinComponent {
     private val messagesService: MessagesService by inject()
     private val gatewayService: GatewayService by inject()
+
     override suspend fun doWork(): Result {
         try {
             val messageId = inputData.getString(MESSAGE_ID) ?: return Result.failure()
@@ -31,6 +33,9 @@ class SendStateWorker(appContext: Context, params: WorkerParameters) :
                 gatewayService.sendState(message)
             }
             return Result.success()
+        } catch (th: ClientRequestException) {
+            th.printStackTrace()
+            return Result.failure()
         } catch (th: Throwable) {
             th.printStackTrace()
             return when {
@@ -41,8 +46,7 @@ class SendStateWorker(appContext: Context, params: WorkerParameters) :
     }
 
     companion object {
-        private const val RETRY_COUNT = 10
-
+        private const val RETRY_COUNT = 3
         private const val MESSAGE_ID = "messageId"
 
         fun start(context: Context, messageId: String) {

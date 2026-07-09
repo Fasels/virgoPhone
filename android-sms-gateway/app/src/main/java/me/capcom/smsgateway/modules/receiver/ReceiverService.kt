@@ -61,7 +61,7 @@ class ReceiverService : KoinComponent {
 
         select(context, period, messageTypes)
             .forEach {
-                process(context, it, triggerWebhooks)
+                process(context, it, triggerWebhooks, "content_provider_export")
             }
 
         logsService.insert(
@@ -72,7 +72,12 @@ class ReceiverService : KoinComponent {
         )
     }
 
-    fun process(context: Context, message: InboxMessage, triggerWebhooks: Boolean) {
+    fun process(
+        context: Context,
+        message: InboxMessage,
+        triggerWebhooks: Boolean,
+        action: String? = null,
+    ) {
         logsService.insert(
             LogEntry.Priority.DEBUG,
             MODULE_NAME,
@@ -80,18 +85,39 @@ class ReceiverService : KoinComponent {
             mapOf("message" to message)
         )
 
+        val classification = InboxMessageClassifier.classify(message, action)
+        val classifiedMessage = classification.message
+        logsService.insert(
+            LogEntry.Priority.DEBUG,
+            MODULE_NAME,
+            "ReceiverService::process - message classification",
+            mapOf(
+                "action" to action,
+                "rawType" to classification.rawType,
+                "finalType" to classification.finalType,
+                "hasAttachment" to classification.hasAttachment,
+                "hasSubject" to classification.hasSubject,
+                "textLength" to classification.textLength,
+                "reason" to classification.reason,
+            )
+        )
+
         // Dedup safety net: skip if this exact message was already processed
-        if (incomingMessagesService.isMessageProcessed(message)) {
+        if (incomingMessagesService.isMessageProcessed(classifiedMessage)) {
             logsService.insert(
                 LogEntry.Priority.DEBUG,
                 MODULE_NAME,
                 "ReceiverService::process - duplicate message, skipping",
-                mapOf("message" to message)
+                mapOf(
+                    "rawType" to classification.rawType,
+                    "finalType" to classification.finalType,
+                    "reason" to classification.reason,
+                )
             )
             return
         }
 
-        val simSlotIndex = message.subscriptionId?.let {
+        val simSlotIndex = classifiedMessage.subscriptionId?.let {
             SubscriptionsHelper.getSimSlotIndex(context, it)
         }
         val simNumber = simSlotIndex?.let { it + 1 }
@@ -99,50 +125,57 @@ class ReceiverService : KoinComponent {
             SubscriptionsHelper.getPhoneNumber(context, it)
         }
 
-        val incoming = incomingMessagesService.save(message)
+        val incoming = incomingMessagesService.save(classifiedMessage)
 
         if (triggerWebhooks) {
-            enqueueGatewayInboxUpload(context, incoming.id, message, simNumber, recipient)
+            enqueueGatewayInboxUpload(
+                context,
+                incoming.id,
+                classifiedMessage,
+                simNumber,
+                recipient,
+                classification
+            )
 
-            val (type, payload) = when (message) {
+            val (type, payload) = when (classifiedMessage) {
                 is InboxMessage.Text -> WebHookEvent.SmsReceived to SmsEventPayload.SmsReceived(
-                    messageId = message.hashCode().toUInt().toString(16),
-                    message = message.text,
+                    messageId = classifiedMessage.hashCode().toUInt().toString(16),
+                    message = classifiedMessage.text,
                     sender = incoming.sender,
                     simNumber = simNumber,
-                    receivedAt = message.date,
+                    receivedAt = classifiedMessage.date,
                     recipient = recipient,
                 )
 
                 is InboxMessage.Data -> WebHookEvent.SmsDataReceived to SmsEventPayload.SmsDataReceived(
-                    messageId = message.hashCode().toUInt().toString(16),
-                    data = Base64.encodeToString(message.data, Base64.NO_WRAP),
+                    messageId = classifiedMessage.hashCode().toUInt().toString(16),
+                    data = Base64.encodeToString(classifiedMessage.data, Base64.NO_WRAP),
                     simNumber = simNumber,
-                    receivedAt = message.date,
+                    receivedAt = classifiedMessage.date,
                     sender = incoming.sender,
                     recipient = recipient,
                 )
 
                 is InboxMessage.MmsHeaders -> WebHookEvent.MmsReceived to MmsReceivedPayload(
-                    messageId = message.messageId ?: message.transactionId,
+                    messageId = classifiedMessage.messageId ?: classifiedMessage.transactionId,
                     simNumber = simNumber,
-                    transactionId = message.transactionId,
-                    subject = message.subject,
-                    size = message.size,
-                    contentClass = message.contentClass,
-                    receivedAt = message.date,
+                    transactionId = classifiedMessage.transactionId,
+                    subject = classifiedMessage.subject,
+                    size = classifiedMessage.size,
+                    contentClass = classifiedMessage.contentClass,
+                    receivedAt = classifiedMessage.date,
                     sender = incoming.sender,
                     recipient = recipient,
                 )
 
                 is InboxMessage.MMS -> WebHookEvent.MmsDownloaded to MmsDownloadedPayload(
-                    messageId = message.messageId,
+                    messageId = classifiedMessage.messageId,
                     sender = incoming.sender,
                     recipient = recipient,
                     simNumber = simNumber,
-                    body = message.body,
-                    subject = message.subject,
-                    attachments = message.attachments.map {
+                    body = classifiedMessage.body,
+                    subject = classifiedMessage.subject,
+                    attachments = classifiedMessage.attachments.map {
                         MmsDownloadedPayload.Attachment(
                             partId = it.partId,
                             contentType = it.contentType,
@@ -151,7 +184,7 @@ class ReceiverService : KoinComponent {
                             data = it.data
                         )
                     },
-                    receivedAt = message.date,
+                    receivedAt = classifiedMessage.date,
                 )
             }
 
@@ -171,6 +204,7 @@ class ReceiverService : KoinComponent {
         message: InboxMessage,
         simNumber: Int?,
         recipient: String?,
+        classification: InboxMessageClassifier.Result,
     ) {
         when (message) {
             is InboxMessage.Text,
@@ -204,7 +238,15 @@ class ReceiverService : KoinComponent {
                     LogEntry.Priority.DEBUG,
                     MODULE_NAME,
                     "Gateway inbox upload skipped for unsupported MMS message",
-                    mapOf("messageId" to messageId)
+                    mapOf(
+                        "messageId" to messageId,
+                        "rawType" to classification.rawType,
+                        "finalType" to classification.finalType,
+                        "hasAttachment" to classification.hasAttachment,
+                        "hasSubject" to classification.hasSubject,
+                        "textLength" to classification.textLength,
+                        "reason" to classification.reason,
+                    )
                 )
             }
         }
@@ -329,7 +371,12 @@ class ReceiverService : KoinComponent {
                         },
                         address = message.sender,
                         date = message.date,
-                        subscriptionId = message.subscriptionId
+                        subscriptionId = message.subscriptionId,
+                        totalPartCount = message.totalPartCount,
+                        textPartCount = message.textPartCount,
+                        smilPartCount = message.smilPartCount,
+                        sourceAction = "content_provider_export",
+                        rawType = "MMS_DOWNLOADED"
                     )
                 )
             }

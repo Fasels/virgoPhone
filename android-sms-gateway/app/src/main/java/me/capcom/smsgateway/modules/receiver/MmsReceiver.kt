@@ -60,8 +60,22 @@ class MmsReceiver : BroadcastReceiver(), KoinComponent {
                 )
             )
 
-
             val mmsNotification = MMSParser.parseMNotificationInd(pdu)
+
+            logsService.insert(
+                LogEntry.Priority.DEBUG,
+                MODULE_NAME,
+                "MmsReceiver::onReceive - broadcast message",
+                mapOf(
+                    "action" to intent.action,
+                    "rawType" to "MMS_NOTIFICATION",
+                    "finalType" to "MMS",
+                    "hasAttachment" to (mmsNotification.messageSize > 0),
+                    "hasSubject" to !mmsNotification.subject.isNullOrBlank(),
+                    "textLength" to 0,
+                    "reason" to "wap_push_mms_notification",
+                )
+            )
 
             Log.d(TAG, "MMS received from ${mmsNotification.from}")
 
@@ -77,7 +91,7 @@ class MmsReceiver : BroadcastReceiver(), KoinComponent {
             )
 
             // Process the message using the existing ReceiverService
-            receiverSvc.process(context, mmsMessage, true)
+            receiverSvc.process(context, mmsMessage, true, intent.action)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error processing MMS", e)

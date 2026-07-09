@@ -116,9 +116,15 @@ class MmsContentObserver : KoinComponent {
                 },
                 message.sender,
                 message.date,
-                message.subscriptionId
+                message.subscriptionId,
+                totalPartCount = message.totalPartCount,
+                textPartCount = message.textPartCount,
+                smilPartCount = message.smilPartCount,
+                sourceAction = "content_provider_mms_observer",
+                rawType = "MMS_DOWNLOADED",
             ),
             true,
+            "content_provider_mms_observer",
         )
     }
 

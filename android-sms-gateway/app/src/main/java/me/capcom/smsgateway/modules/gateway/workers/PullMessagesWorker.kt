@@ -5,8 +5,10 @@ import androidx.lifecycle.map
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
@@ -38,15 +40,31 @@ class PullMessagesWorker(
 
     companion object {
         const val NAME = "PullMessagesWorker"
+        const val IMMEDIATE_NAME = "PullMessagesWorkerImmediate"
 
         fun start(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+
+            val immediateWork = OneTimeWorkRequestBuilder<PullMessagesWorker>()
+                .setBackoffCriteria(
+                    BackoffPolicy.EXPONENTIAL,
+                    WorkRequest.MIN_BACKOFF_MILLIS,
+                    TimeUnit.MILLISECONDS
+                )
+                .setConstraints(constraints)
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(
+                    IMMEDIATE_NAME,
+                    ExistingWorkPolicy.REPLACE,
+                    immediateWork
+                )
+
             val work = PeriodicWorkRequestBuilder<PullMessagesWorker>(PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS, TimeUnit.MILLISECONDS)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
-                )
+                .setConstraints(constraints)
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(
@@ -63,6 +81,8 @@ class PullMessagesWorker(
         fun stop(context: Context) {
             WorkManager.getInstance(context)
                 .cancelUniqueWork(NAME)
+            WorkManager.getInstance(context)
+                .cancelUniqueWork(IMMEDIATE_NAME)
         }
     }
 }
