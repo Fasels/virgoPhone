@@ -7,6 +7,8 @@ import android.content.IntentFilter
 import android.provider.Telephony.Sms.Intents
 import android.util.Log
 import me.capcom.smsgateway.helpers.SubscriptionsHelper
+import me.capcom.smsgateway.modules.logs.LogsService
+import me.capcom.smsgateway.modules.logs.db.LogEntry
 import me.capcom.smsgateway.modules.receiver.data.InboxMessage
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -14,6 +16,7 @@ import java.util.Date
 
 class MessagesReceiver : BroadcastReceiver(), KoinComponent {
     private val receiverSvc: ReceiverService by inject()
+    private val logsService: LogsService by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intents.SMS_RECEIVED_ACTION
@@ -27,6 +30,25 @@ class MessagesReceiver : BroadcastReceiver(), KoinComponent {
 
         val isDataMessage = intent.action == Intents.DATA_SMS_RECEIVED_ACTION
         val firstMessage = messages.first()
+        val textLength = when (isDataMessage) {
+            false -> messages.sumOf { it.displayMessageBody?.length ?: 0 }
+            true -> 0
+        }
+        logsService.insert(
+            LogEntry.Priority.DEBUG,
+            MODULE_NAME,
+            "MessagesReceiver::onReceive - broadcast message",
+            mapOf(
+                "action" to intent.action,
+                "rawType" to if (isDataMessage) "DATA_SMS" else "SMS",
+                "finalType" to if (isDataMessage) "DATA_SMS" else "SMS",
+                "segmentCount" to messages.size,
+                "hasAttachment" to false,
+                "hasSubject" to false,
+                "textLength" to textLength,
+                "reason" to if (isDataMessage) "data_sms_pdu_broadcast" else "sms_pdu_broadcast",
+            )
+        )
 
         val inboxMessage = when (isDataMessage) {
             false -> InboxMessage.Text(
@@ -48,6 +70,7 @@ class MessagesReceiver : BroadcastReceiver(), KoinComponent {
             context,
             inboxMessage,
             true,
+            intent.action,
         )
     }
 

@@ -56,7 +56,12 @@ sealed class InboxMessage(
         val attachments: List<Attachment>,
         address: String,
         date: Date,
-        subscriptionId: Int?
+        subscriptionId: Int?,
+        val totalPartCount: Int? = null,
+        val textPartCount: Int? = null,
+        val smilPartCount: Int? = null,
+        val sourceAction: String? = null,
+        val rawType: String? = null,
     ) : InboxMessage(address, date, subscriptionId) {
         class Attachment(
             val partId: Long,

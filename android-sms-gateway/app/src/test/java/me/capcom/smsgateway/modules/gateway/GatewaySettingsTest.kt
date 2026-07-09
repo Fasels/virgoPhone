@@ -11,9 +11,16 @@ class GatewaySettingsTest {
         val settings = GatewaySettings(EmptyStorage())
 
         assertEquals(
-            "https://api.syzygium.net/mobile/v1",
+            "http://192.168.50.24:8001/mobile/v1",
             settings.serverUrl
         )
+    }
+
+    @Test
+    fun privateToken_defaultsToConfiguredPrivateToken() {
+        val settings = GatewaySettings(EmptyStorage())
+
+        assertEquals("123", settings.privateToken)
     }
 
     private class EmptyStorage : KeyValueStorage {
