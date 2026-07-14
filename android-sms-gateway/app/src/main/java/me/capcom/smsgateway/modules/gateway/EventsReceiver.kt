@@ -52,8 +52,6 @@ class EventsReceiver : EventsReceiver() {
             launch {
                 Log.d("EventsReceiver", "launched PingEvent")
                 eventBus.collect<PingEvent> {
-                    Log.d("EventsReceiver", "Event: $it")
-
                     if (!settings.enabled) return@collect
 
                     PullMessagesWorker.start(get())
