@@ -11,10 +11,7 @@ import me.capcom.smsgateway.modules.gateway.events.MessageEnqueuedEvent
 import me.capcom.smsgateway.modules.gateway.events.SettingsUpdatedEvent
 import me.capcom.smsgateway.modules.gateway.events.WebhooksUpdatedEvent
 import me.capcom.smsgateway.modules.gateway.services.SSEForegroundService
-import me.capcom.smsgateway.modules.gateway.workers.PullMessagesWorker
 import me.capcom.smsgateway.modules.gateway.workers.SendStateWorker
-import me.capcom.smsgateway.modules.gateway.workers.SettingsUpdateWorker
-import me.capcom.smsgateway.modules.gateway.workers.WebhooksUpdateWorker
 import me.capcom.smsgateway.modules.messages.events.MessageStateChangedEvent
 import me.capcom.smsgateway.modules.ping.events.PingEvent
 import org.koin.core.component.get
@@ -32,7 +29,7 @@ class EventsReceiver : EventsReceiver() {
 
                     if (!settings.enabled) return@collect
 
-                    PullMessagesWorker.start(get())
+                    SSEForegroundService.requestSync(get())
                 }
             }
             launch {
@@ -56,7 +53,7 @@ class EventsReceiver : EventsReceiver() {
 
                     if (!settings.enabled) return@collect
 
-                    PullMessagesWorker.start(get())
+                    SSEForegroundService.requestSync(get())
                 }
             }
 
@@ -67,7 +64,7 @@ class EventsReceiver : EventsReceiver() {
 
                     if (!settings.enabled) return@collect
 
-                    WebhooksUpdateWorker.start(get())
+                    SSEForegroundService.requestSync(get())
                 }
             }
 
@@ -78,7 +75,7 @@ class EventsReceiver : EventsReceiver() {
 
                     if (!settings.enabled) return@collect
 
-                    SettingsUpdateWorker.start(get())
+                    SSEForegroundService.requestSync(get())
                 }
             }
 
