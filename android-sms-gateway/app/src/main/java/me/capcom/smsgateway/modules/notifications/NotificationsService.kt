@@ -25,6 +25,7 @@ class NotificationsService(
         NOTIFICATION_ID_SETTINGS_CHANGED to R.drawable.notif_settings,
         NOTIFICATION_ID_SMS_RECEIVED_WEBHOOK to R.drawable.notif_webhook_registered,
         NOTIFICATION_ID_REALTIME_EVENTS to R.drawable.notif_realtime_events,
+        NOTIFICATION_ID_RESIDENT_SERVICE to R.drawable.ic_sms,
     )
 
     private val builders = mapOf<Int, (NotificationCompat.Builder) -> NotificationCompat.Builder>(
@@ -33,6 +34,9 @@ class NotificationsService(
         },
         NOTIFICATION_ID_SMS_RECEIVED_WEBHOOK to {
             it.setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true)
+        },
+        NOTIFICATION_ID_RESIDENT_SERVICE to {
+            it.setPriority(NotificationCompat.PRIORITY_LOW).setOngoing(true)
         },
     )
 
@@ -93,5 +97,6 @@ class NotificationsService(
         const val NOTIFICATION_ID_SETTINGS_CHANGED = 5
         const val NOTIFICATION_ID_SMS_RECEIVED_WEBHOOK = 6
         const val NOTIFICATION_ID_REALTIME_EVENTS = 7
+        const val NOTIFICATION_ID_RESIDENT_SERVICE = 8
     }
 }

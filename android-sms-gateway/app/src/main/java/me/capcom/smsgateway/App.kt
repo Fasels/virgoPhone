@@ -5,6 +5,7 @@ import android.content.Context
 import healthModule
 import me.capcom.smsgateway.data.dbModule
 import me.capcom.smsgateway.helpers.LocaleHelper
+import me.capcom.smsgateway.helpers.SettingsHelper
 import me.capcom.smsgateway.modules.connection.connectionModule
 import me.capcom.smsgateway.modules.encryption.encryptionModule
 import me.capcom.smsgateway.modules.events.eventBusModule
@@ -14,13 +15,13 @@ import me.capcom.smsgateway.modules.localserver.localserverModule
 import me.capcom.smsgateway.modules.logs.logsModule
 import me.capcom.smsgateway.modules.messages.messagesModule
 import me.capcom.smsgateway.modules.notifications.notificationsModule
-import me.capcom.smsgateway.modules.orchestrator.OrchestratorService
 import me.capcom.smsgateway.modules.orchestrator.orchestratorModule
 import me.capcom.smsgateway.modules.ping.pingModule
 import me.capcom.smsgateway.modules.receiver.receiverModule
 import me.capcom.smsgateway.modules.settings.settingsModule
 import me.capcom.smsgateway.modules.webhooks.webhooksModule
 import me.capcom.smsgateway.receivers.EventsReceiver
+import me.capcom.smsgateway.services.ResidentForegroundService
 import org.koin.android.ext.android.get
 import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
@@ -69,7 +70,13 @@ class App: Application() {
 
         EventsReceiver.register(this)
 
-        get<OrchestratorService>().start(this, true)
+        if (get<SettingsHelper>().autostart) {
+            try {
+                ResidentForegroundService.start(this)
+            } catch (error: Throwable) {
+                error.printStackTrace()
+            }
+        }
     }
 
     val gatewayService: GatewayService by inject()

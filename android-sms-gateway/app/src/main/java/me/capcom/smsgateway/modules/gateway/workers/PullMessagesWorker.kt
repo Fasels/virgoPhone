@@ -69,7 +69,7 @@ class PullMessagesWorker(
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(
                     NAME,
-                    ExistingPeriodicWorkPolicy.REPLACE,
+                    ExistingPeriodicWorkPolicy.KEEP,
                     work
                 )
         }

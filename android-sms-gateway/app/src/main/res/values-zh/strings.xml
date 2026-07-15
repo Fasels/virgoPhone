@@ -96,7 +96,7 @@
     <string name="settings_offline">离线</string>
     <string name="settings_online">在线</string>
     <string name="settings_public_address_not_found">不可用</string>
-    <string name="settings_start_on_boot">开机启动</string>
+    <string name="settings_start_on_boot">开机启动并保持运行</string>
     <string name="sign_in">登录</string>
     <string name="sign_up">注册</string>
     <string name="signing_key">签名密钥</string>
@@ -153,4 +153,5 @@
     <string name="password_cleared">密码已清除</string>
     <string name="password_must_not_be_empty">密码不能为空</string>
     <string name="password_hidden">密码已隐藏</string>
+    <string name="resident_service_is_active">短信基站运行中</string>
 </resources>

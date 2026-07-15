@@ -6,7 +6,7 @@
 
 **Architecture:** Add a dedicated sticky `ResidentForegroundService` as the only automatic business-lifecycle entry point. Keep `OrchestratorService` responsible for business modules, protect it with an idempotent lifecycle gate, and route app launch, boot, upgrade, and UI controls through the resident service.
 
-**Tech Stack:** Kotlin, Android Service/BroadcastReceiver, Koin, WorkManager, JUnit 4, Robolectric, Gradle 8/Android Gradle Plugin 8.1.
+**Tech Stack:** Kotlin, Android Service/BroadcastReceiver, Koin, WorkManager, JUnit 4, Gradle 8/Android Gradle Plugin 8.1.
 
 ---
 
@@ -16,9 +16,8 @@
 - Create `app/src/main/java/me/capcom/smsgateway/services/ResidentForegroundService.kt`: sticky foreground service and start/stop helpers.
 - Create `app/src/test/java/me/capcom/smsgateway/modules/orchestrator/IdempotentLifecycleTest.kt`: lifecycle gate JVM tests.
 - Create `app/src/test/java/me/capcom/smsgateway/helpers/SettingsHelperTest.kt`: default and persisted autostart behavior.
-- Create `app/src/test/java/me/capcom/smsgateway/services/ResidentForegroundServiceTest.kt`: foreground service sticky and idempotent behavior under Robolectric.
-- Create `app/src/test/java/me/capcom/smsgateway/receivers/BootReceiverTest.kt`: boot/upgrade recovery policy under Robolectric.
-- Modify `app/build.gradle`: enable Android resources in JVM tests and add Robolectric test dependencies.
+- Create `app/src/test/java/me/capcom/smsgateway/services/ResidentServiceLifecycleTest.kt`: resident lifecycle JVM tests.
+- Create `app/src/test/java/me/capcom/smsgateway/receivers/BootReceiverPolicyTest.kt`: boot/upgrade recovery policy JVM tests.
 - Modify `app/src/main/AndroidManifest.xml`: register the resident service, notification permission, and upgrade broadcast.
 - Modify `app/src/main/java/me/capcom/smsgateway/helpers/SettingsHelper.kt`: default autostart to true while preserving explicit false.
 - Modify `app/src/main/java/me/capcom/smsgateway/modules/orchestrator/OrchestratorService.kt`: idempotent, failure-isolated startup and stop.
@@ -29,30 +28,13 @@
 - Modify `app/src/main/java/me/capcom/smsgateway/ui/HomeFragment.kt`: make the switch and start button control the resident service and request notification permission on Android 13+.
 - Modify `app/src/main/res/values/strings.xml` and `app/src/main/res/values-zh/strings.xml`: resident notification and switch labels.
 
-### Task 1: Test infrastructure and default-enabled setting
+### Task 1: Default-enabled setting
 
-- [ ] **Step 1: Add JVM Android test support**
+- [ ] **Step 1: Write failing settings tests**
 
-Add to `android {}` in `app/build.gradle`:
+Create `SettingsHelperTest.kt` as a pure JVM test. Assert the preference resolver returns true when no value has been stored, and preserves an explicitly stored false.
 
-```groovy
-testOptions {
-    unitTests.includeAndroidResources = true
-}
-```
-
-Add test dependencies:
-
-```groovy
-testImplementation("androidx.test:core:1.5.0")
-testImplementation("org.robolectric:robolectric:4.11.1")
-```
-
-- [ ] **Step 2: Write failing settings tests**
-
-Create `SettingsHelperTest.kt` with Robolectric application setup. Assert a fresh preference store returns `autostart == true`, then set `autostart = false`, recreate `SettingsHelper`, and assert the explicit false remains false.
-
-- [ ] **Step 3: Run the tests and verify RED**
+- [ ] **Step 2: Run the tests and verify RED**
 
 Run:
 
@@ -60,17 +42,20 @@ Run:
 .\gradlew.bat testDebugUnitTest --tests me.capcom.smsgateway.helpers.SettingsHelperTest
 ```
 
-Expected: fresh-settings test fails because the current default is false.
+Expected: compilation fails because the preference resolver does not exist.
 
-- [ ] **Step 4: Implement the default**
+- [ ] **Step 3: Implement the default**
 
-Change only the fallback in `SettingsHelper.autostart`:
+Add a pure preference resolver and use it from `SettingsHelper.autostart`:
 
 ```kotlin
-get() = settings.getBoolean(PREF_KEY_AUTOSTART, true)
+get() = resolveAutostartPreference(
+    hasStoredValue = settings.contains(PREF_KEY_AUTOSTART),
+    storedValue = settings.getBoolean(PREF_KEY_AUTOSTART, false),
+)
 ```
 
-- [ ] **Step 5: Run the tests and verify GREEN**
+- [ ] **Step 4: Run the tests and verify GREEN**
 
 Run the same filtered Gradle command. Expected: both tests pass.
 
@@ -118,16 +103,14 @@ Expected: lifecycle tests and existing project tests pass.
 
 - [ ] **Step 1: Write failing resident-service tests**
 
-Using Robolectric with a plain `Application`, install a small Koin test module containing a fake resident runtime and `NotificationsService`. Assert:
+Create a pure `ResidentServiceLifecycle` test with a fake runtime. Assert:
 
-- `onStartCommand()` returns `Service.START_STICKY`.
 - two start commands call the runtime start once.
 - stopping/destroying the service calls runtime stop once.
-- the foreground notification uses `NOTIFICATION_ID_RESIDENT_SERVICE`.
 
 - [ ] **Step 2: Run service tests and verify RED**
 
-Expected: compilation fails because `ResidentForegroundService` and its notification ID do not exist.
+Expected: compilation fails because `ResidentServiceLifecycle` does not exist.
 
 - [ ] **Step 3: Implement resident runtime boundary and service**
 
@@ -156,7 +139,7 @@ Add resident notification ID `8`, mark its builder ongoing, add `POST_NOTIFICATI
 
 - [ ] **Step 5: Write failing boot/upgrade tests**
 
-Assert `BootReceiver` starts `ResidentForegroundService` for `BOOT_COMPLETED` and `MY_PACKAGE_REPLACED` only when autostart is enabled. Assert it does nothing for unrelated actions or an explicitly disabled setting.
+Assert the pure boot receiver policy accepts `BOOT_COMPLETED` and `MY_PACKAGE_REPLACED` only when autostart is enabled. Assert it rejects unrelated actions and an explicitly disabled setting.
 
 - [ ] **Step 6: Implement recovery routing**
 
@@ -164,7 +147,7 @@ Replace direct orchestrator startup in `BootReceiver` with resident-service star
 
 - [ ] **Step 7: Run resident and receiver tests**
 
-Expected: all new Robolectric tests pass.
+Expected: all new pure JVM tests pass, and Android boundary code compiles.
 
 ### Task 4: UI control, permissions, resources, and full verification
 

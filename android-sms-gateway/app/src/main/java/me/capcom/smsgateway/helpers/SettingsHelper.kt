@@ -16,7 +16,10 @@ class SettingsHelper(private val context: Context) {
     }
 
     var autostart: Boolean
-        get() = settings.getBoolean(PREF_KEY_AUTOSTART, false)
+        get() = resolveAutostartPreference(
+            hasStoredValue = settings.contains(PREF_KEY_AUTOSTART),
+            storedValue = settings.getBoolean(PREF_KEY_AUTOSTART, false),
+        )
         set(value) {
             // enable broadcast receiver
             context.packageManager.setComponentEnabledSetting(
@@ -56,3 +59,8 @@ class SettingsHelper(private val context: Context) {
         private const val APP_LANGUAGE = "app.language"
     }
 }
+
+internal fun resolveAutostartPreference(
+    hasStoredValue: Boolean,
+    storedValue: Boolean,
+): Boolean = if (hasStoredValue) storedValue else true

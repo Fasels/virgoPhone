@@ -1,6 +1,5 @@
 package me.capcom.smsgateway.ui
 
-import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -38,7 +37,7 @@ import me.capcom.smsgateway.modules.gateway.events.DeviceRegisteredEvent
 import me.capcom.smsgateway.modules.localserver.LocalServerService
 import me.capcom.smsgateway.modules.localserver.LocalServerSettings
 import me.capcom.smsgateway.modules.localserver.events.IPReceivedEvent
-import me.capcom.smsgateway.modules.orchestrator.OrchestratorService
+import me.capcom.smsgateway.services.ResidentForegroundService
 import me.capcom.smsgateway.ui.dialogs.FirstStartDialogFragment
 import org.koin.android.ext.android.inject
 
@@ -56,8 +55,6 @@ class HomeFragment : Fragment() {
 
     private val localServerSvc: LocalServerService by inject()
     private val gatewaySvc: GatewayService by inject()
-
-    private val orchestratorSvc: OrchestratorService by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -144,6 +141,12 @@ class HomeFragment : Fragment() {
 
         binding.switchAutostart.setOnCheckedChangeListener { _, isChecked ->
             settingsHelper.autostart = isChecked
+            handleResidentToggle(
+                enabled = isChecked,
+                startResident = ::start,
+                continueStartFlow = { actionStart(true) },
+                stopResident = ::stop,
+            )
         }
         binding.switchUseRemoteServer.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked != gatewaySettings.enabled) {
@@ -354,22 +357,16 @@ class HomeFragment : Fragment() {
     }
 
     private fun stop() {
-        orchestratorSvc.stop(requireContext())
+        ResidentForegroundService.stop(requireContext())
     }
 
     private fun start() {
-        orchestratorSvc.start(requireContext().applicationContext, false)
+        ResidentForegroundService.start(requireContext().applicationContext)
     }
 
     private fun requestPermissionsAndStart() {
         val permissionsRequired =
-            listOf(
-                Manifest.permission.READ_PHONE_STATE,
-                Manifest.permission.READ_SMS,
-                Manifest.permission.RECEIVE_SMS,
-                Manifest.permission.SEND_SMS,
-                Manifest.permission.RECEIVE_MMS,
-            )
+            requiredRuntimePermissions(Build.VERSION.SDK_INT)
                 .filter {
                     ContextCompat.checkSelfPermission(
                         requireContext(),

@@ -5,6 +5,7 @@ import org.koin.dsl.module
 
 val orchestratorModule = module {
     singleOf(::OrchestratorService)
+    single<ResidentRuntime> { get<OrchestratorService>() }
     singleOf(::EventsRouter)
 }
 

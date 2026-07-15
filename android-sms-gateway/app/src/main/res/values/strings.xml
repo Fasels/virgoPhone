@@ -107,7 +107,7 @@
     <string name="settings_online">Online</string>
     <string name="settings_public_address_is" translatable="false">&lt;a href>%1$s:%2$d&lt;/a></string>
     <string name="settings_public_address_not_found">Not available</string>
-    <string name="settings_start_on_boot">Start on boot</string>
+    <string name="settings_start_on_boot">Start on boot and keep running</string>
     <string name="sign_in">Sign In</string>
     <string name="sign_up">Sign Up</string>
     <string name="signing_key">Signing Key</string>
@@ -176,4 +176,5 @@
     <string name="language">Language</string>
     <string name="language_system">System default</string>
     <string name="password_must_not_be_empty">Password must not be empty</string>
+    <string name="resident_service_is_active">SMS base station is running</string>
 </resources>

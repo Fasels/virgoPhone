@@ -1,7 +1,7 @@
 package me.capcom.smsgateway.modules.orchestrator
 
 import android.content.Context
-import me.capcom.smsgateway.helpers.SettingsHelper
+import android.util.Log
 import me.capcom.smsgateway.modules.gateway.GatewayService
 import me.capcom.smsgateway.modules.localserver.LocalServerService
 import me.capcom.smsgateway.modules.logs.LogsService
@@ -19,48 +19,54 @@ class OrchestratorService(
     private val receiverService: ReceiverService,
     private val pingSvc: PingService,
     private val logsSvc: LogsService,
-    private val settings: SettingsHelper,
-) {
-    fun start(context: Context, autostart: Boolean) {
-        if (autostart && !settings.autostart) {
-            return
-        }
+) : ResidentRuntime {
+    private val moduleStartup = ModuleStartup()
 
-        logsSvc.start(context)
-        messagesSvc.start(context)
-        webHooksSvc.start(context)
-        gatewaySvc.start(context)
+    override fun start(context: Context) {
+        moduleStartup.start(
+            modules = listOf(
+                ModuleStart("logs") { logsSvc.start(context) },
+                ModuleStart("messages") { messagesSvc.start(context) },
+                ModuleStart("webhooks") { webHooksSvc.start(context) },
+                ModuleStart("gateway") { gatewaySvc.start(context) },
+                ModuleStart("localServer") { localServerSvc.start(context) },
+                ModuleStart("ping") { pingSvc.start(context) },
+                ModuleStart("receiver") { receiverService.start(context) },
+            ),
+            onFailure = { name, error -> logFailure("start", name, error) },
+        )
+    }
 
+    override fun stop(context: Context) {
+        stopModule("receiver") { receiverService.stop(context) }
+        stopModule("ping") { pingSvc.stop(context) }
+        stopModule("localServer") { localServerSvc.stop(context) }
+        stopModule("gateway") { gatewaySvc.stop(context) }
+        stopModule("webhooks") { webHooksSvc.stop(context) }
+        stopModule("messages") { messagesSvc.stop(context) }
+        stopModule("logs") { logsSvc.stop(context) }
+        moduleStartup.reset()
+    }
+
+    private fun stopModule(name: String, action: () -> Unit) {
         try {
-            localServerSvc.start(context)
-            pingSvc.start(context)
-        } catch (e: Throwable) {
-            logsSvc.insert(
-                LogEntry.Priority.WARN,
-                MODULE_NAME,
-                "Can't start foreground services while the app is running in the background"
-            )
-        }
-
-        try {
-            receiverService.start(context)
-        } catch (e: Throwable) {
-            logsSvc.insert(
-                LogEntry.Priority.WARN,
-                MODULE_NAME,
-                "Can't register receiver"
-            )
+            action()
+        } catch (error: Throwable) {
+            logFailure("stop", name, error)
         }
     }
 
-    fun stop(context: Context) {
-        receiverService.stop(context)
-        pingSvc.stop(context)
-        localServerSvc.stop(context)
-
-        gatewaySvc.stop(context)
-        webHooksSvc.stop(context)
-        messagesSvc.stop(context)
-        logsSvc.stop(context)
+    private fun logFailure(operation: String, name: String, error: Throwable) {
+        Log.e(MODULE_NAME, "Failed to $operation module: $name", error)
+        try {
+            logsSvc.insert(
+                LogEntry.Priority.WARN,
+                MODULE_NAME,
+                "Failed to $operation module: $name",
+                mapOf("exception" to error.stackTraceToString()),
+            )
+        } catch (_: Throwable) {
+            // Android logging above remains available if the database logger is unavailable.
+        }
     }
 }
