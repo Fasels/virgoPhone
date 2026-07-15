@@ -370,6 +370,13 @@ class HomeFragment : Fragment() {
                 Manifest.permission.SEND_SMS,
                 Manifest.permission.RECEIVE_MMS,
             )
+                .let {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        it + Manifest.permission.POST_NOTIFICATIONS
+                    } else {
+                        it
+                    }
+                }
                 .filter {
                     ContextCompat.checkSelfPermission(
                         requireContext(),

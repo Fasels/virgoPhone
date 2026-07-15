@@ -6,11 +6,8 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
-import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequest
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkRequest
@@ -60,17 +57,6 @@ class PullMessagesWorker(
                     IMMEDIATE_NAME,
                     ExistingWorkPolicy.REPLACE,
                     immediateWork
-                )
-
-            val work = PeriodicWorkRequestBuilder<PullMessagesWorker>(PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS, TimeUnit.MILLISECONDS)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
-                .setConstraints(constraints)
-                .build()
-            WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(
-                    NAME,
-                    ExistingPeriodicWorkPolicy.REPLACE,
-                    work
                 )
         }
 

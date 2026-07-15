@@ -68,6 +68,8 @@
     <string name="not_registered">not registered</string>
     <string name="not_set">Not set</string>
     <string name="notification_title">SMSGate</string>
+    <string name="gateway_service_notification_title">Virgo gateway is running</string>
+    <string name="gateway_service_status">Connection: %1$s</string>
     <string name="notification_channel">Notification channel</string>
     <string name="notifications">Notifications</string>
     <string name="online_status_at_the_cost_of_battery_life">Online status at the cost of battery

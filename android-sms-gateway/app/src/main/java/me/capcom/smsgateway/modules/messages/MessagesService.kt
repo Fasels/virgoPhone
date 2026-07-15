@@ -17,6 +17,8 @@ import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.capcom.smsgateway.data.dao.MessagesDao
 import me.capcom.smsgateway.data.entities.Message
@@ -57,6 +59,7 @@ class MessagesService(
 
     private val countryCode: String? =
         (context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager).networkCountryIso
+    private val sendPendingMutex = Mutex()
 
     //#region Health
     fun healthCheck(): Map<String, CheckResult> {
@@ -210,7 +213,7 @@ class MessagesService(
         dao.truncateLog(System.currentTimeMillis() - lifetime * 86400000L)
     }
 
-    internal suspend fun sendPendingMessages() {
+    internal suspend fun sendPendingMessages() = sendPendingMutex.withLock {
         try {
             var previousPriority = Message.PRIORITY_MIN
 

@@ -51,9 +51,9 @@ class GatewayService(
         if (settings.registrationInfo?.token != null) {
             SSEForegroundService.start(context)
         }
-        PullMessagesWorker.start(context)
-        WebhooksUpdateWorker.start(context)
-        SettingsUpdateWorker.start(context)
+        PullMessagesWorker.stop(context)
+        WebhooksUpdateWorker.stop(context)
+        SettingsUpdateWorker.stop(context)
 
         eventsReceiver.start()
     }
@@ -69,7 +69,7 @@ class GatewayService(
         this._api = null
     }
 
-    fun isActiveLiveData(context: Context) = PullMessagesWorker.getStateLiveData(context)
+    fun isActiveLiveData(context: Context) = SSEForegroundService.state
     //endregion
 
     //region Account
@@ -236,6 +236,17 @@ class GatewayService(
                 )
                 th.printStackTrace()
             }
+        }
+        try {
+            messagesService.sendPendingMessages()
+        } catch (th: Throwable) {
+            logsService.insert(
+                LogEntry.Priority.ERROR,
+                MODULE_NAME,
+                "SMS_SEND_FAILED",
+                mapOf("reason" to (th.message ?: th.javaClass.simpleName))
+            )
+            throw th
         }
     }
 

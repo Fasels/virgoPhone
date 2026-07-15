@@ -59,6 +59,51 @@ class NotificationsService(
         notificationManager.notify(id, makeNotification(context, id, contentText))
     }
 
+    fun notifyGatewayService(
+        context: Context,
+        connectionState: String,
+        deviceState: String,
+        lastSync: String,
+    ) {
+        notificationManager.notify(
+            NOTIFICATION_ID_REALTIME_EVENTS,
+            makeGatewayServiceNotification(context, connectionState, deviceState, lastSync)
+        )
+    }
+
+    fun makeGatewayServiceNotification(
+        context: Context,
+        connectionState: String,
+        deviceState: String,
+        lastSync: String,
+    ): Notification {
+        return NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(context.getText(R.string.gateway_service_notification_title))
+            .setContentText(connectionState)
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    listOf(
+                        context.getString(R.string.gateway_service_status, connectionState),
+                        deviceState,
+                        lastSync,
+                    ).joinToString("\n")
+                )
+            )
+            .setSmallIcon(R.drawable.notif_realtime_events)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    0,
+                    MainActivity.starter(context, MainActivity.TAB_INDEX_HOME),
+                    PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+            .build()
+    }
+
     fun makeNotification(
         context: Context,
         id: Int,
