@@ -331,7 +331,7 @@ class CustomerServiceStoreTest {
     }
 
     @Test
-    fun mmsMessagesUseImagePreviewAndPendingPreviewText() {
+    fun mmsMessagesUseImagePreviewAndEmptyMmsPreviewText() {
         val store = CustomerServiceStore(
             contacts = listOf(
                 AgentContact("contact_1", "Client One", "+1 555 0101", "", "north"),
@@ -359,7 +359,7 @@ class CustomerServiceStoreTest {
             ),
         )
 
-        assertEquals("[Image downloading]", store.conversations.single().lastMessagePreview)
+        assertEquals("[MMS]", store.conversations.single().lastMessagePreview)
 
         store.replaceMessages(
             "conv_1",

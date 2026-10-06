@@ -52,7 +52,7 @@ class InboxMessageClassifierTest {
     }
 
     @Test
-    fun uploadsDownloadedMmsWithTextAsSmsEvenWhenAttachmentExists() {
+    fun preservesDownloadedMmsTextAndAttachment() {
         val message = downloadedMms(
             body = "photo caption",
             attachments = listOf(
@@ -72,15 +72,17 @@ class InboxMessageClassifierTest {
         val result = InboxMessageClassifier.classify(message)
 
         assertEquals("MMS_DOWNLOADED", result.rawType)
-        assertEquals("SMS", result.finalType)
-        assertTrue(result.message is InboxMessage.Text)
+        assertEquals("MMS", result.finalType)
+        assertTrue(result.message is InboxMessage.MMS)
         assertTrue(result.hasAttachment)
-        assertEquals("photo caption", (result.message as InboxMessage.Text).text)
-        assertEquals("mms_with_text_and_attachment_uploaded_as_sms_text", result.reason)
+        assertSame(message, result.message)
+        assertEquals(1, (result.message as InboxMessage.MMS).attachments.size)
+        assertEquals("photo caption", (result.message as InboxMessage.MMS).body)
+        assertEquals("downloaded_mms_content_preserved", result.reason)
     }
 
     @Test
-    fun fallsBackToSmsWhenProviderMarksPlainTextAsMm() {
+    fun preservesTextOnlyMms() {
         val message = downloadedMms(
             body = "verification code 123456",
             subject = null,
@@ -94,11 +96,11 @@ class InboxMessageClassifierTest {
         val result = InboxMessageClassifier.classify(message)
 
         assertEquals("MM", result.rawType)
-        assertEquals("SMS", result.finalType)
+        assertEquals("MMS", result.finalType)
         assertFalse(result.hasAttachment)
         assertFalse(result.hasSubject)
-        assertEquals("verification code 123456", (result.message as InboxMessage.Text).text)
-        assertEquals("text_only_mms_uploaded_as_sms", result.reason)
+        assertEquals("verification code 123456", (result.message as InboxMessage.MMS).body)
+        assertEquals("downloaded_mms_content_preserved", result.reason)
     }
 
     @Test
@@ -155,11 +157,11 @@ class InboxMessageClassifierTest {
         val result = InboxMessageClassifier.classify(message)
 
         assertEquals("x-samsung-MM", result.rawType)
-        assertEquals("SMS", result.finalType)
-        assertTrue(result.message is InboxMessage.Text)
+        assertEquals("MMS", result.finalType)
+        assertTrue(result.message is InboxMessage.MMS)
         assertEquals(
             "samsung delivered this through a provider MM row",
-            (result.message as InboxMessage.Text).text
+            (result.message as InboxMessage.MMS).body
         )
     }
 

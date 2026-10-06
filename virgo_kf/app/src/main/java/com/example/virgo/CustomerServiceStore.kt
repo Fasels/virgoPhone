@@ -355,7 +355,7 @@ fun AgentMessage.previewText(): String {
     val trimmed = text.trim()
     if (trimmed.isNotBlank()) return trimmed
     if (messageType != AgentMessageType.Mms) return ""
-    if (attachments.isEmpty()) return "[Image downloading]"
+    if (attachments.isEmpty()) return "[MMS]"
     return if (attachments.any { it.contentType.startsWith("image/", ignoreCase = true) }) {
         "[Image]"
     } else {

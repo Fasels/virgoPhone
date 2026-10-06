@@ -114,6 +114,14 @@ class GatewayApi(
         }.body()
     }
 
+    suspend fun postMmsInbox(token: String, request: me.capcom.smsgateway.modules.webhooks.payload.MmsDownloadedPayload) {
+        client.post("$baseUrl/inbox/mms") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }
+
     suspend fun getUserCode(credentials: Pair<String, String>): GetUserCodeResponse {
         return client.get("$baseUrl/user/code") {
             basicAuth(credentials.first, credentials.second)

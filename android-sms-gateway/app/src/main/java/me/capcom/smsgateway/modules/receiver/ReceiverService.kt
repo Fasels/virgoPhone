@@ -4,6 +4,10 @@ import android.content.Context
 import android.os.Build
 import android.provider.Telephony
 import android.util.Base64
+import androidx.work.WorkManager
+import me.capcom.smsgateway.modules.gateway.GatewaySettings
+import me.capcom.smsgateway.modules.gateway.workers.SendMmsInboxWorker
+import me.capcom.smsgateway.modules.gateway.workers.MmsUploadTask
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.capcom.smsgateway.helpers.SubscriptionsHelper
@@ -33,6 +37,8 @@ class ReceiverService : KoinComponent {
     private val mmsContentObserver by lazy { MmsContentObserver() }
 
     fun start(context: Context) {
+        // Restarting reception after fixing credentials/configuration retries retained failures.
+        SendMmsInboxWorker.store(context).retryFailed()
         MessagesReceiver.register(context)
         MmsReceiver.register(context)
         eventsReceiver.start()
@@ -40,6 +46,8 @@ class ReceiverService : KoinComponent {
     }
 
     fun stop(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork("MmsInboxScan")
+        WorkManager.getInstance(context).cancelUniqueWork("SendMmsInbox")
         mmsContentObserver.stop()
         eventsReceiver.stop()
         MmsReceiver.unregister(context)
@@ -87,6 +95,17 @@ class ReceiverService : KoinComponent {
 
         val classification = InboxMessageClassifier.classify(message, action)
         val classifiedMessage = classification.message
+        // Only downloaded MMS becomes a gateway conversation message. Notification
+        // IDs are carrier IDs, not provider IDs, and must not create a second bubble.
+        if (classifiedMessage is InboxMessage.MmsHeaders) {
+            incomingMessagesService.save(classifiedMessage)
+            return
+        }
+        if (classifiedMessage is InboxMessage.MMS && triggerWebhooks) {
+            enqueueDownloadedMms(context, classifiedMessage)
+            incomingMessagesService.save(classifiedMessage)
+            return
+        }
         logsService.insert(
             LogEntry.Priority.DEBUG,
             MODULE_NAME,
@@ -250,6 +269,30 @@ class ReceiverService : KoinComponent {
                 )
             }
         }
+    }
+
+    private fun enqueueDownloadedMms(context: Context, message: InboxMessage.MMS) {
+        val settings: GatewaySettings by inject()
+        val deviceId = settings.deviceId
+        if (!settings.enabled || deviceId == null) throw java.io.IOException("MMS waits for gateway registration")
+        val outbox = SendMmsInboxWorker.store(context)
+        val key = outbox.key(settings.serverUrl, deviceId, message.messageId)
+        if (!outbox.contains(key)) {
+            require(message.attachments.all { !it.data.isNullOrEmpty() }) { "MMS parts are not ready" }
+            val slot = message.subscriptionId?.let { SubscriptionsHelper.getSimSlotIndex(context, it) }
+            require(slot != null && slot >= 0) { "MMS SIM could not be resolved" }
+            val payload = MmsDownloadedPayload(
+                messageId = message.messageId, sender = message.address,
+                recipient = SubscriptionsHelper.getPhoneNumber(context, slot), simNumber = slot + 1,
+                body = message.body, subject = message.subject, receivedAt = message.date,
+                attachments = message.attachments.sortedBy { it.partId }.map {
+                    MmsDownloadedPayload.Attachment(it.partId, it.contentType, it.name, it.size, it.data)
+                },
+            )
+            val task = MmsUploadTask(settings.serverUrl, deviceId, payload)
+            outbox.enqueue(key, SendMmsInboxWorker.gson.toJson(task))
+        }
+        SendMmsInboxWorker.start(context)
     }
 
 

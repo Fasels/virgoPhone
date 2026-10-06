@@ -316,6 +316,15 @@ class GatewayService(
         SendInboxMessageWorker.start(context, request)
     }
 
+    internal suspend fun sendMmsInbox(task: me.capcom.smsgateway.modules.gateway.workers.MmsUploadTask) {
+        val registration = settings.registrationInfo
+        if (!settings.enabled || registration == null || registration.id != task.deviceId ||
+            settings.serverUrl != task.serverUrl) {
+            throw java.io.IOException("MMS upload waits for its original registered gateway")
+        }
+        api.postMmsInbox(registration.token, task.payload)
+    }
+
     internal suspend fun sendInboxMessage(request: GatewayApi.InboxMessageRequest) {
         if (!settings.enabled) return
         val settings = settings.registrationInfo ?: return

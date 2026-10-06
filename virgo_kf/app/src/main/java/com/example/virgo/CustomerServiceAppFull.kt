@@ -854,7 +854,7 @@ private fun FullMessageBubble(
 ) {
     val isOutbound = message.direction == MessageDirection.Outbound
     val hasText = message.text.isNotBlank()
-    val isPendingMms = message.messageType == AgentMessageType.Mms && message.attachments.isEmpty()
+    val isPendingMms = message.messageType == AgentMessageType.Mms && message.attachments.isEmpty() && !hasText
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         horizontalArrangement = if (isOutbound) Arrangement.End else Arrangement.Start,
@@ -873,7 +873,7 @@ private fun FullMessageBubble(
                     )
                 }
                 if (isPendingMms) {
-                    FullAttachmentStatus("Image downloading", isOutbound)
+                    FullAttachmentStatus("[MMS]", isOutbound)
                 }
                 message.attachments.forEach { attachment ->
                     FullAttachmentPreview(attachment, isOutbound, onImagePreviewSelected)

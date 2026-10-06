@@ -79,19 +79,21 @@ object MmsContentReader {
             partUri,
             arrayOf("_id", "ct", "text", "name", "fn", "cl", "_data"),
             null, null, "_id"
-        )
+        ) ?: throw IOException("MMS parts not ready")
 
         val bodyParts = mutableListOf<String>()
         val attachments = mutableListOf<MmsAttachment>()
         var totalPartCount = 0
         var textPartCount = 0
         var smilPartCount = 0
+        var totalBytes = 0L
 
-        partCursor?.use { c ->
+        partCursor.use { c ->
+            require(c.count <= 128) { "MMS has too many parts" }
             while (c.moveToNext()) {
                 totalPartCount++
                 val partId = c.getLong(0)
-                val contentType = c.getString(1) ?: continue
+                val contentType = c.getString(1) ?: throw IOException("MMS part type not ready")
                 val mimeType = contentType.substringBefore(";").trim()
 
                 if (mimeType.equals("text/plain", ignoreCase = true)) {
@@ -99,7 +101,7 @@ object MmsContentReader {
                     val text = c.getString(6)?.let {
                         readTextPart(resolver, partId, contentType)
                     }
-                        ?: c.getString(2)
+                        ?: c.getString(2) ?: throw IOException("MMS text not ready")
 
                     if (!text.isNullOrBlank()) {
                         bodyParts.add(text)
@@ -116,21 +118,24 @@ object MmsContentReader {
                 val name = c.getString(3)
                     ?: c.getString(4)
                     ?: c.getString(5)
-                val dataPath = c.getString(6)
-                val size = readPartSize(resolver, partId, dataPath)
+                val bytes = readPartBytes(resolver, partId)
+                val size = bytes.size.toLong()
+                totalBytes += size
+                require(totalBytes <= 20L * 1024 * 1024) { "MMS exceeds 20 MiB" }
 
                 attachments.add(
                     MmsAttachment(
                         partId = partId,
-                        contentType = contentType,
+                        contentType = mimeType.lowercase(),
                         name = name,
                         size = size,
-                        data = readPartData(resolver, partId),
+                        data = Base64.encodeToString(bytes, Base64.NO_WRAP),
                     )
                 )
             }
         }
 
+        if (totalPartCount == 0 || sender == "unknown") throw IOException("MMS metadata not ready")
         return MmsMessage(
             id = mmsId,
             sender = sender,
@@ -145,38 +150,18 @@ object MmsContentReader {
         )
     }
 
-    private fun readPartSize(resolver: ContentResolver, partId: Long, dataPath: String?): Long? {
-        val sizeFromProvider = try {
-            resolver.openFileDescriptor(Uri.parse("content://mms/part/$partId"), "r")?.use { pfd ->
-                pfd.statSize
+    private fun readPartBytes(resolver: ContentResolver, partId: Long): ByteArray {
+        return resolver.openInputStream(Uri.parse("content://mms/part/$partId"))?.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                require(output.size() + count <= 10 * 1024 * 1024) { "MMS part exceeds 10 MiB" }
+                output.write(buffer, 0, count)
             }
-        } catch (_: Exception) {
-            null
-        }
-
-        if (sizeFromProvider != null && sizeFromProvider >= 0L) {
-            return sizeFromProvider
-        }
-
-        return dataPath?.let {
-            try {
-                java.io.File(it).length()
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
-
-
-    private fun readPartData(resolver: ContentResolver, partId: Long): String? {
-        return try {
-            resolver.openInputStream(Uri.parse("content://mms/part/$partId"))?.use { input ->
-                val bytes = input.readBytes()
-                if (bytes.isNotEmpty()) Base64.encodeToString(bytes, Base64.NO_WRAP) else null
-            }
-        } catch (_: Exception) {
-            null
-        }
+            output.toByteArray().also { if (it.isEmpty()) throw IOException("MMS part not ready") }
+        } ?: throw IOException("MMS part cannot be opened")
     }
 
     private fun readTextPart(
@@ -184,17 +169,7 @@ object MmsContentReader {
         partId: Long,
         contentType: String?
     ): String? {
-        return try {
-            resolver.openInputStream(Uri.parse("content://mms/part/$partId"))?.use { input ->
-                val bytes = input.readBytes()
-                if (bytes.isEmpty()) return null
-
-                val charset = parseCharset(contentType)
-                String(bytes, charset)
-            }
-        } catch (_: IOException) {
-            null
-        }
+        return String(readPartBytes(resolver, partId), parseCharset(contentType))
     }
 
     private fun parseCharset(contentType: String?): Charset {

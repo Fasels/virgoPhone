@@ -62,24 +62,8 @@ object InboxMessageClassifier {
         } ?: false
 
         if (hasText) {
-            return Result(
-                message = InboxMessage.Text(
-                    text = message.body.orEmpty(),
-                    address = message.address,
-                    date = message.date,
-                    subscriptionId = message.subscriptionId,
-                ),
-                rawType = message.rawType ?: "MMS_DOWNLOADED",
-                finalType = "SMS",
-                hasAttachment = hasAttachment,
-                hasSubject = hasSubject,
-                textLength = textLength,
-                reason = when {
-                    hasAttachment -> "mms_with_text_and_attachment_uploaded_as_sms_text"
-                    hasSubject -> "mms_with_text_and_subject_uploaded_as_sms_text"
-                    else -> "text_only_mms_uploaded_as_sms"
-                },
-            )
+            return downloadedMmsResult(message, hasAttachment, hasSubject, textLength,
+                "downloaded_mms_content_preserved")
         }
 
         if (hasAttachment) {
