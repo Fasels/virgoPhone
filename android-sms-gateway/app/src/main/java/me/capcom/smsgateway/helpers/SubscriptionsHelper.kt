@@ -89,19 +89,7 @@ object SubscriptionsHelper {
 
     @SuppressLint("MissingPermission")
     fun getPhoneNumber(context: Context, simSlotIndex: Int): String? {
-        if (!hasPhoneStatePermission(context)) {
-            return null
-        }
-
-        val subscriptionManager = getSubscriptionsManager(context) ?: return null
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            subscriptionManager.activeSubscriptionInfoList?.find {
-                it.simSlotIndex == simSlotIndex
-            }?.number?.takeIf { it.isNotBlank() }
-        } else {
-            null
-        }
+        return getActiveSimCardsSnapshot(context)?.find { it.slotIndex == simSlotIndex }?.phoneNumber
     }
 
     /**
@@ -115,32 +103,38 @@ object SubscriptionsHelper {
      * @return List of active SIM cards, empty if none available or API level too low
      */
     @SuppressLint("MissingPermission")
-    fun getActiveSimCards(context: Context): List<SimCard> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) {
-            return emptyList()
-        }
+    fun getActiveSimCards(context: Context): List<SimCard> =
+        getActiveSimCardsSnapshot(context).orEmpty()
 
-        val subscriptionManager = getSubscriptionsManager(context) ?: return emptyList()
+    /** Null means the active subscriptions could not be read, rather than no SIMs. */
+    @SuppressLint("MissingPermission")
+    fun getActiveSimCardsSnapshot(context: Context): List<SimCard>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) {
+            return null
+        }
+        if (!hasPhoneStatePermission(context)) return null
+        val subscriptionManager = getSubscriptionsManager(context) ?: return null
 
         val activeSubscriptions = try {
-            subscriptionManager.activeSubscriptionInfoList ?: return emptyList()
-        } catch (_: SecurityException) {
-            return emptyList()
+            subscriptionManager.activeSubscriptionInfoList ?: return null
+        } catch (_: RuntimeException) {
+            return null
         }
-
-        val hasPermission = hasPhoneStatePermission(context)
-
         return activeSubscriptions.map { info ->
+            @Suppress("DEPRECATION")
+            val phoneNumber = readPhoneNumberFromSources(primary = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ActivityCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_NUMBERS) ==
+                    PackageManager.PERMISSION_GRANTED) {
+                    subscriptionManager.getPhoneNumber(info.subscriptionId)
+                } else null
+            }, fallback = { info.number })
             SimCard(
                 slotIndex = info.simSlotIndex,
                 simNumber = info.simSlotIndex + 1,
-                phoneNumber = if (hasPermission) {
-                    info.number?.takeIf { it.isNotBlank() }
-                } else {
-                    null
-                },
+                phoneNumber = phoneNumber,
                 carrierName = info.carrierName?.toString()?.takeIf { it.isNotBlank() },
-                iccid = info.iccId?.takeIf { it.isNotBlank() },
+                iccid = runCatching { info.iccId }.getOrNull()?.takeIf { it.isNotBlank() },
             )
         }
     }

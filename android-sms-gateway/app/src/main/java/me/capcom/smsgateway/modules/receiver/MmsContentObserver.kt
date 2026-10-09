@@ -59,7 +59,13 @@ class MmsContentObserver : KoinComponent {
         if (!gateway.enabled) return
         try {
             if (storage.mmsScanSinceSeconds == 0L) {
-                storage.mmsScanSinceSeconds = System.currentTimeMillis() / 1000 - 24 * 60 * 60
+                // Preserve old conversations during the first upgrade. Start at
+                // installation, so messages arriving before the service starts
+                // still qualify, without replaying the previous day's MMS.
+                storage.mmsScanSinceSeconds = initialMmsScanSinceSeconds(
+                    context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime,
+                    System.currentTimeMillis(),
+                )
             }
             val outbox = SendMmsInboxWorker.store(context)
             context.contentResolver.query(Uri.parse("content://mms"), arrayOf("_id"),

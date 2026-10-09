@@ -747,6 +747,15 @@ private fun FullConversationList(store: CustomerServiceStore, onConversationSele
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
+                    val lastMessageTime = formatChatTimestamp(conversation.lastMessageAt)
+                    if (lastMessageTime.isNotBlank()) {
+                        Text(
+                            lastMessageTime,
+                            color = FullColors.TextSecondary,
+                            fontSize = 11.sp,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                    }
                     Text(
                         store.conversationPhoneNumber(conversation.id),
                         color = FullColors.TextSecondary,
@@ -878,6 +887,12 @@ private fun FullMessageBubble(
                 message.attachments.forEach { attachment ->
                     FullAttachmentPreview(attachment, isOutbound, onImagePreviewSelected)
                 }
+                Text(
+                    text = formatChatTimestamp(message.time).ifBlank { "Time unavailable" },
+                    color = if (isOutbound) Color.White.copy(alpha = 0.8f) else FullColors.TextSecondary,
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.End),
+                )
             }
         }
     }

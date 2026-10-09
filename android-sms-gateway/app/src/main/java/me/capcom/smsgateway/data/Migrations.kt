@@ -94,3 +94,57 @@ val MIGRATION_21_22 = object : Migration(21, 22) {
         )
     }
 }
+
+/** Add reliability metadata without replacing, deleting or changing any existing message. */
+val MIGRATION_23_24 = object : Migration(23, 24) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS gateway_delivery (
+                messageId TEXT NOT NULL PRIMARY KEY,
+                deviceId TEXT NOT NULL,
+                serverUrl TEXT NOT NULL,
+                payloadJson TEXT NOT NULL,
+                payloadHash TEXT NOT NULL,
+                claimToken TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                error TEXT,
+                simFingerprint TEXT
+            )
+        """.trimIndent())
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_gateway_delivery_deviceId_serverUrl_phase ON gateway_delivery(deviceId, serverUrl, phase)")
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS message_status_outbox (
+                messageId TEXT NOT NULL PRIMARY KEY,
+                revision INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                blockedReason TEXT,
+                reportedRevision INTEGER NOT NULL DEFAULT 0
+            )
+        """.trimIndent())
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS message_part_result (
+                messageId TEXT NOT NULL,
+                phoneNumber TEXT NOT NULL,
+                partIndex INTEGER NOT NULL,
+                eventType TEXT NOT NULL,
+                state TEXT NOT NULL,
+                error TEXT,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY(messageId, phoneNumber, partIndex, eventType)
+            )
+        """.trimIndent())
+        // Old cloud Pending rows have no durable receipt/ACK or submission fence. Their
+        // original state and history stay intact; do not guess whether they were submitted.
+        database.execSQL("""
+            INSERT OR IGNORE INTO gateway_delivery(messageId, deviceId, serverUrl, payloadJson, payloadHash, claimToken, phase, updatedAt, error)
+            SELECT id, '', '', '', '', '', 'UNKNOWN', createdAt, 'legacy-unverified'
+            FROM message WHERE source IN ('Cloud','Gateway') AND state = 'Pending'
+        """.trimIndent())
+        database.execSQL("""
+            INSERT OR IGNORE INTO message_status_outbox(messageId, revision, updatedAt, blockedReason)
+            SELECT id, 1, COALESCE(processedAt, createdAt), NULL
+            FROM message WHERE source IN ('Cloud','Gateway') AND state <> 'Pending'
+        """.trimIndent())
+    }
+}

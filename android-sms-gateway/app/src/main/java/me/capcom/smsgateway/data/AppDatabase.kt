@@ -6,12 +6,16 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import me.capcom.smsgateway.data.dao.MessagesDao
+import me.capcom.smsgateway.data.dao.DeliveryLedgerDao
 import me.capcom.smsgateway.data.dao.TokensDao
 import me.capcom.smsgateway.data.entities.Message
 import me.capcom.smsgateway.data.entities.MessageRecipient
 import me.capcom.smsgateway.data.entities.MessageState
 import me.capcom.smsgateway.data.entities.RecipientState
 import me.capcom.smsgateway.data.entities.Token
+import me.capcom.smsgateway.data.entities.GatewayDelivery
+import me.capcom.smsgateway.data.entities.MessageStatusOutbox
+import me.capcom.smsgateway.data.entities.MessagePartResult
 import me.capcom.smsgateway.modules.incoming.db.IncomingMessage
 import me.capcom.smsgateway.modules.incoming.db.IncomingMessagesDao
 import me.capcom.smsgateway.modules.logs.db.LogEntriesDao
@@ -32,8 +36,11 @@ import me.capcom.smsgateway.modules.webhooks.db.WebhookQueueEntity
         LogEntry::class,
         Token::class,
         IncomingMessage::class,
+        GatewayDelivery::class,
+        MessageStatusOutbox::class,
+        MessagePartResult::class,
     ],
-    version = 23,
+    version = 24,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -62,6 +69,7 @@ import me.capcom.smsgateway.modules.webhooks.db.WebhookQueueEntity
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun messagesDao(): MessagesDao
+    abstract fun deliveryLedgerDao(): DeliveryLedgerDao
     abstract fun webhooksDao(): WebHooksDao
     abstract fun webhookQueueDao(): WebhookQueueDao
     abstract fun logDao(): LogEntriesDao
@@ -79,6 +87,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_13_14,
                     MIGRATION_21_22,
+                    MIGRATION_23_24,
                 )
                 .allowMainThreadQueries()
                 .build()

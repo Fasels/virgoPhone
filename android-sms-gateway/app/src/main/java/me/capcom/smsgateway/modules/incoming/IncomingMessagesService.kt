@@ -31,7 +31,7 @@ class IncomingMessagesService(
         }
 
         return IncomingMessage(
-            id = buildId(message),
+            id = idOf(message),
             type = type,
             sender = message.address,
             recipient = recipient,
@@ -75,10 +75,11 @@ class IncomingMessagesService(
     }
 
     fun isMessageProcessed(message: InboxMessage): Boolean {
-        return getById(buildId(message)) != null
+        return getById(idOf(message)) != null
     }
 
-    private fun buildId(message: InboxMessage): String {
+    fun idOf(message: InboxMessage): String {
+        smsInboxIdentity(message)?.let { return it }
         val prefix = when (message) {
             is InboxMessage.Data -> "data:"
             is InboxMessage.MMS -> "mms:"
