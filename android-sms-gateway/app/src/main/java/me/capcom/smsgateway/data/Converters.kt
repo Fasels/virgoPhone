@@ -23,12 +23,12 @@ class Converters {
 
     @TypeConverter
     fun dateToString(value: Date?): String? {
-        return value?.let { DATE_FORMAT.format(it) }
+        return value?.let { synchronized(DATE_FORMAT) { DATE_FORMAT.format(it) } }
     }
 
     @TypeConverter
     fun dateFromString(value: String?): Date? {
-        return value?.let { DATE_FORMAT.parse(it) }
+        return value?.let { synchronized(DATE_FORMAT) { DATE_FORMAT.parse(it) } }
     }
 
     @TypeConverter

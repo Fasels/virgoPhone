@@ -1,0 +1,6 @@
+# Private build inputs and generated packages.
+*.jks
+*.keystore
+*.apk
+**/google-services.json
+**/local.properties

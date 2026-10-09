@@ -85,9 +85,33 @@ class GatewayApi(
         }
     }
 
+    suspend fun deviceSyncSimMetadata(token: String, request: DeviceSimMetadataRequest) {
+        client.patch("$baseUrl/device") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }
+
     suspend fun getMessages(token: String, processingOrder: ProcessingOrder): List<Message> {
         return client.get("$baseUrl/message") {
             parameter("order", processingOrder)
+            parameter("protocol", 2)
+            bearerAuth(token)
+        }.body()
+    }
+
+    suspend fun acknowledgeMessage(token: String, request: DeliveryAcknowledgement): DeliveryAcknowledgementResponse {
+        return client.post("$baseUrl/message/ack") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+    }
+
+    suspend fun getMessageState(token: String, messageId: String): MessageStateResponse {
+        val encoded = java.net.URLEncoder.encode(messageId, "UTF-8").replace("+", "%20")
+        return client.get("$baseUrl/message/$encoded/state") {
             bearerAuth(token)
         }.body()
     }
@@ -173,6 +197,14 @@ class GatewayApi(
         val id: String,
         val pushToken: String?,
         val simCards: List<SimCard>?,
+        val syncPhoneNumbers: Boolean = false,
+    )
+
+    // Deliberately has no pushToken: the shared Gson configuration serializes nulls.
+    data class DeviceSimMetadataRequest(
+        val id: String,
+        val simCards: List<SimCard>,
+        val syncPhoneNumbers: Boolean = true,
     )
 
     data class MessagePatchRequest(
@@ -180,6 +212,23 @@ class GatewayApi(
         val state: ProcessingState,
         val recipients: List<RecipientState>,
         val states: Map<ProcessingState, Date>
+    )
+
+    data class Delivery(
+        val token: String,
+        val payloadHash: String,
+        val leaseExpiresAt: Long,
+        val simCardId: String?,
+    )
+
+    data class DeliveryAcknowledgement(val id: String, val token: String, val payloadHash: String)
+    data class DeliveryAcknowledgementResponse(val ok: Boolean, val id: String)
+    data class MessageStateResponse(
+        val id: String,
+        val state: ProcessingState,
+        val recipients: List<RecipientState>,
+        val states: Map<ProcessingState, Date>?,
+        val deliveryAccepted: Boolean?,
     )
 
     data class InboxMessageRequest(
@@ -241,6 +290,8 @@ class GatewayApi(
 
         @SerializedName("message")
         val _message: String?,
+        val delivery: Delivery? = null,
+        val legacyTransport: Boolean = false,
     ) {
         val content: MessageContent
             get() = this._dataMessage

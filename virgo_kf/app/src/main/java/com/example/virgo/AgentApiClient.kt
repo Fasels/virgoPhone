@@ -119,7 +119,7 @@ class AgentApiClient(
                 areas = item.getValue("areas"),
                 unreadCount = item["unreadCount"]?.toIntOrNull() ?: 0,
                 lastMessagePreview = item["lastMessagePreview"].orEmpty(),
-                lastMessageAt = item["lastMessageAt"]?.let(::formatTimestamp).orEmpty(),
+                lastMessageAt = item["lastMessageAt"].orEmpty(),
                 servicePhoneNumber = item["servicePhoneNumber"].toNullableField(),
             )
         }
@@ -293,7 +293,11 @@ class AgentApiClient(
                     text = (json["textContent"] ?: json["text"]).orEmpty()
                         .ifBlank { CustomerServiceStore.IncomingMessagePlaceholder },
                     state = json["state"].orEmpty().ifBlank { "Received" },
-                    time = json["createdAt"]?.let(::formatTimestamp).orEmpty().ifBlank { "Now" },
+                    time = preferredMessageTimestamp(
+                        MessageDirection.Inbound,
+                        createdAt = json["createdAt"].orEmpty(),
+                        receivedAt = json["receivedAt"].orEmpty(),
+                    ),
                 ),
             )
         }
@@ -373,7 +377,12 @@ class AgentApiClient(
             state = item.stringValue("state").ifBlank {
                 if (direction == MessageDirection.Outbound) "Sent" else "Received"
             },
-            time = item.stringValue("createdAt").let(::formatTimestamp),
+            time = preferredMessageTimestamp(
+                direction,
+                createdAt = item.stringValue("createdAt"),
+                receivedAt = item.stringValue("receivedAt"),
+                sentAt = item.stringValue("sentAt"),
+            ),
             messageType = messageType,
             attachments = item.attachments(),
             customerSimCard = item.stringValue("customerSimCard").takeIf { it.isNotBlank() },
@@ -462,10 +471,6 @@ class AgentApiClient(
             requestMethod = "POST"
             setRequestProperty("X-HTTP-Method-Override", "PATCH")
         }
-    }
-
-    private fun formatTimestamp(raw: String): String {
-        return raw.takeIf { it.isNotBlank() }.orEmpty()
     }
 
     private fun String?.toNullableField(): String? {

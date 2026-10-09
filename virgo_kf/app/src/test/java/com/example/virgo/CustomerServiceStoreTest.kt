@@ -328,6 +328,7 @@ class CustomerServiceStoreTest {
 
         assertEquals(reply, store.messagesFor("conv_1").last())
         assertEquals("Server confirmed", store.conversations.single().lastMessagePreview)
+        assertEquals(reply.time, store.conversations.single().lastMessageAt)
     }
 
     @Test

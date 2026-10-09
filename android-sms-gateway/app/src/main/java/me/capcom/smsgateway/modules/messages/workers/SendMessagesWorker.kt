@@ -19,6 +19,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+import kotlinx.coroutines.CancellationException
 
 class SendMessagesWorker(appContext: Context, params: WorkerParameters) :
     CoroutineWorker(appContext, params), KoinComponent {
@@ -44,6 +45,8 @@ class SendMessagesWorker(appContext: Context, params: WorkerParameters) :
             )
 
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
 
@@ -76,8 +79,11 @@ class SendMessagesWorker(appContext: Context, params: WorkerParameters) :
 
     companion object {
         private const val NAME = "SendMessagesWorker"
+        private const val IMMEDIATE_NAME = "SendMessagesImmediateV2"
+        private const val SCHEDULED_NAME = "SendMessagesScheduledV2"
         const val IMMEDIATE = 0L
 
+        @Suppress("UNUSED_PARAMETER")
         fun start(context: Context, force: Boolean, scheduleAt: Long) {
             val initialDelay = max(0, scheduleAt - System.currentTimeMillis())
 
@@ -97,18 +103,24 @@ class SendMessagesWorker(appContext: Context, params: WorkerParameters) :
 
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(
-                    NAME,
-                    when (force) {
-                        true -> ExistingWorkPolicy.REPLACE
-                        false -> ExistingWorkPolicy.KEEP
-                    },
+                    if (initialDelay == 0L) IMMEDIATE_NAME else SCHEDULED_NAME,
+                    // Queue an additional drain rather than cancelling an in-flight submit
+                    // or losing the wake-up between its final SELECT and completion.
+                    if (initialDelay == 0L) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.REPLACE,
                     work
                 )
         }
 
+        fun cancelLegacy(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(NAME)
+        }
+
         fun stop(context: Context) {
-            WorkManager.getInstance(context)
-                .cancelUniqueWork(NAME)
+            WorkManager.getInstance(context).apply {
+                cancelUniqueWork(NAME)
+                cancelUniqueWork(IMMEDIATE_NAME)
+                cancelUniqueWork(SCHEDULED_NAME)
+            }
         }
     }
 }

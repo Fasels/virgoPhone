@@ -7,6 +7,18 @@ plugins {
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val hasReleaseKeystore = keystorePropertiesFile.exists()
+val testClientNumber = providers.gradleProperty("mmsTestClientNumber").orNull
+val releaseClientNumber = providers.gradleProperty("releaseClientNumber").orNull
+require(testClientNumber == null || releaseClientNumber == null) {
+    "Test and release client identities cannot be selected together"
+}
+require(releaseClientNumber == null || releaseClientNumber.toIntOrNull()?.let { it in 1..5 } == true) {
+    "releaseClientNumber must be between 1 and 5"
+}
+val agentBaseUrl = providers.gradleProperty("agentBaseUrl").orNull ?: "https://api.syzygium.net"
+require(testClientNumber == null || testClientNumber.toIntOrNull()?.let { it in 1..5 } == true) {
+    "mmsTestClientNumber must be between 1 and 5"
+}
 val requestedReleaseBuild = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
 val keystoreProperties = Properties().apply {
     if (hasReleaseKeystore) {
@@ -25,11 +37,28 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.virgo"
+        applicationId = when {
+            releaseClientNumber != null -> "com.example.virgo.client${releaseClientNumber}"
+            testClientNumber != null -> "com.example.virgo.client${testClientNumber}.mmstest"
+            else -> "com.example.virgo"
+        }
         minSdk = 27
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = when {
+            releaseClientNumber != null -> 3
+            testClientNumber != null -> 2
+            else -> 1
+        }
+        versionName = when {
+            releaseClientNumber != null -> "1.1.1"
+            testClientNumber != null -> "1.1.0-mms-20261006"
+            else -> "1.0"
+        }
+        manifestPlaceholders["agentAppLabel"] = when {
+            releaseClientNumber != null -> "客服端${releaseClientNumber}"
+            testClientNumber != null -> "客服端${testClientNumber} MMS测试"
+            else -> "@string/app_name"
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -47,10 +76,11 @@ android {
 
     buildTypes {
         debug {
+            isDebuggable = releaseClientNumber == null
             buildConfigField(
                 "String",
                 "AGENT_BASE_URL",
-                "\"http://192.168.1.3:8000\"",
+                "\"$agentBaseUrl\"",
             )
         }
         release {
@@ -60,7 +90,7 @@ android {
             buildConfigField(
                 "String",
                 "AGENT_BASE_URL",
-                "\"https://api.syzygium.net\"",
+                "\"$agentBaseUrl\"",
             )
             optimization {
                 enable = true

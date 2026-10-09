@@ -5,6 +5,9 @@ import android.os.Build
 
 internal fun requiredRuntimePermissions(sdkInt: Int): List<String> = buildList {
     add(Manifest.permission.READ_PHONE_STATE)
+    if (sdkInt >= Build.VERSION_CODES.O) {
+        add(Manifest.permission.READ_PHONE_NUMBERS)
+    }
     add(Manifest.permission.READ_SMS)
     add(Manifest.permission.RECEIVE_SMS)
     add(Manifest.permission.SEND_SMS)

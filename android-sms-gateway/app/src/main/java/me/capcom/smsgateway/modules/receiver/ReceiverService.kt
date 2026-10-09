@@ -37,8 +37,8 @@ class ReceiverService : KoinComponent {
     private val mmsContentObserver by lazy { MmsContentObserver() }
 
     fun start(context: Context) {
-        // Restarting reception after fixing credentials/configuration retries retained failures.
-        SendMmsInboxWorker.store(context).retryFailed()
+        // The MMS worker restores only failures made compatible by this release.
+        SendMmsInboxWorker.start(context)
         MessagesReceiver.register(context)
         MmsReceiver.register(context)
         eventsReceiver.start()
@@ -47,7 +47,7 @@ class ReceiverService : KoinComponent {
 
     fun stop(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork("MmsInboxScan")
-        WorkManager.getInstance(context).cancelUniqueWork("SendMmsInbox")
+        SendMmsInboxWorker.stop(context)
         mmsContentObserver.stop()
         eventsReceiver.stop()
         MmsReceiver.unregister(context)
@@ -144,18 +144,21 @@ class ReceiverService : KoinComponent {
             SubscriptionsHelper.getPhoneNumber(context, it)
         }
 
-        val incoming = incomingMessagesService.save(classifiedMessage)
-
-        if (triggerWebhooks) {
-            enqueueGatewayInboxUpload(
+        // Commit the routed receive payload before incoming_messages marks it processed.
+        // A failed WorkManager enqueue is safe once the separate file outbox is durable.
+        if (triggerWebhooks && (classifiedMessage is InboxMessage.Text || classifiedMessage is InboxMessage.Data)) {
+            if (!enqueueGatewayInboxUpload(
                 context,
-                incoming.id,
+                incomingMessagesService.idOf(classifiedMessage),
                 classifiedMessage,
                 simNumber,
                 recipient,
                 classification
-            )
+            )) return
+        }
+        val incoming = incomingMessagesService.save(classifiedMessage)
 
+        if (triggerWebhooks) {
             val (type, payload) = when (classifiedMessage) {
                 is InboxMessage.Text -> WebHookEvent.SmsReceived to SmsEventPayload.SmsReceived(
                     messageId = classifiedMessage.hashCode().toUInt().toString(16),
@@ -224,8 +227,8 @@ class ReceiverService : KoinComponent {
         simNumber: Int?,
         recipient: String?,
         classification: InboxMessageClassifier.Result,
-    ) {
-        when (message) {
+    ): Boolean {
+        return when (message) {
             is InboxMessage.Text,
             is InboxMessage.Data -> {
                 try {
@@ -248,6 +251,7 @@ class ReceiverService : KoinComponent {
                             "exception" to e.stackTraceToString(),
                         )
                     )
+                    false
                 }
             }
 
@@ -267,6 +271,7 @@ class ReceiverService : KoinComponent {
                         "reason" to classification.reason,
                     )
                 )
+                false
             }
         }
     }

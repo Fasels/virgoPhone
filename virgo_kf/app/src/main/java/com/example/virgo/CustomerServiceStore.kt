@@ -163,6 +163,7 @@ class CustomerServiceStore(
             updateConversationPreview(
                 conversationId = conversationId,
                 preview = message.previewText(),
+                time = message.time,
                 unreadCount = conversations.firstOrNull { it.id == conversationId }?.unreadCount ?: 0,
                 protectFromStaleRefresh = true,
             )
@@ -199,7 +200,7 @@ class CustomerServiceStore(
             direction = MessageDirection.Outbound,
             text = content,
             state = "Pending",
-            time = "Now",
+            time = System.currentTimeMillis().toString(),
         )
         appendMessage(message)
         mutableDraft = ""
@@ -210,6 +211,7 @@ class CustomerServiceStore(
         updateConversationPreview(
             conversationId = message.conversationId,
             preview = message.previewText(),
+            time = message.time,
             unreadCount = 0,
             protectFromStaleRefresh = true,
         )
@@ -223,6 +225,7 @@ class CustomerServiceStore(
         updateConversationPreview(
             conversationId = message.conversationId,
             preview = saved.message.previewText(),
+            time = saved.message.time,
             unreadCount = if (isConversationOpen) 0 else currentUnread + unreadIncrement,
             protectFromStaleRefresh = true,
         )
@@ -264,7 +267,7 @@ class CustomerServiceStore(
                 areas = "",
                 unreadCount = 0,
                 lastMessagePreview = "",
-                lastMessageAt = "Now",
+                lastMessageAt = "",
             ),
         )
         localConversationIds += conversationId
@@ -319,6 +322,7 @@ class CustomerServiceStore(
     private fun updateConversationPreview(
         conversationId: String,
         preview: String,
+        time: String,
         unreadCount: Int,
         protectFromStaleRefresh: Boolean,
     ) {
@@ -326,7 +330,7 @@ class CustomerServiceStore(
         if (index == -1) return
         conversations[index] = conversations[index].copy(
             lastMessagePreview = preview,
-            lastMessageAt = "Now",
+            lastMessageAt = time,
             unreadCount = unreadCount,
         )
         if (protectFromStaleRefresh) {

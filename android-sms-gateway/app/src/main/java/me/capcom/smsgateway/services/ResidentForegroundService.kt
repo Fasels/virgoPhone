@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import me.capcom.smsgateway.R
+import me.capcom.smsgateway.helpers.GatewayRunIntent
 import me.capcom.smsgateway.modules.logs.LogsService
 import me.capcom.smsgateway.modules.logs.db.LogEntry
 import me.capcom.smsgateway.modules.notifications.NotificationsService
@@ -26,6 +27,12 @@ class ResidentForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!GatewayRunIntent.isRequested(applicationContext)) {
+            Log.i(TAG, "Ignoring service start: user requested stop")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        Log.i(TAG, "Starting requested resident runtime; sticky=${intent == null}, startId=$startId")
         val notification = notificationsService.makeNotification(
             this,
             NotificationsService.NOTIFICATION_ID_RESIDENT_SERVICE,
@@ -53,6 +60,7 @@ class ResidentForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "Resident destroyed; requestedRunning=${GatewayRunIntent.isRequested(applicationContext)}")
         try {
             lifecycle.stop()
         } catch (error: Throwable) {
@@ -73,7 +81,9 @@ class ResidentForegroundService : Service() {
     companion object {
         private const val TAG = "ResidentForegroundService"
 
-        fun start(context: Context) {
+        fun start(context: Context, userRequested: Boolean = false) {
+            if (userRequested) GatewayRunIntent.setRequested(context, true)
+            if (!GatewayRunIntent.isRequested(context)) return
             val intent = Intent(context, ResidentForegroundService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -83,6 +93,8 @@ class ResidentForegroundService : Service() {
         }
 
         fun stop(context: Context) {
+            GatewayRunIntent.setRequested(context, false)
+            Log.i(TAG, "Explicit resident stop; caller=${Throwable().stackTrace.drop(1).take(3).joinToString()}")
             context.stopService(Intent(context, ResidentForegroundService::class.java))
         }
     }

@@ -361,7 +361,7 @@ class HomeFragment : Fragment() {
     }
 
     private fun start() {
-        ResidentForegroundService.start(requireContext().applicationContext)
+        ResidentForegroundService.start(requireContext().applicationContext, userRequested = true)
     }
 
     private fun requestPermissionsAndStart() {

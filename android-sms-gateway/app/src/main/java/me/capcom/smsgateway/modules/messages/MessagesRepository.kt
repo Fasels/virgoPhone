@@ -15,8 +15,10 @@ import me.capcom.smsgateway.modules.messages.data.SendParams
 import me.capcom.smsgateway.modules.messages.data.SendRequest
 import me.capcom.smsgateway.modules.messages.data.StoredSendRequest
 import java.util.Date
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MessagesRepository(private val dao: MessagesDao) {
+    private val recovered = AtomicBoolean(false)
     private val gson = GsonBuilder().serializeNulls().create()
 
     fun selectLast(limit: Int) = dao.selectLast(limit).distinctUntilChanged()
@@ -29,7 +31,24 @@ class MessagesRepository(private val dao: MessagesDao) {
     }
 
     fun enqueue(request: SendRequest): MessageWithRecipients {
-        val message = MessageWithRecipients(
+        val message = request.toEntity()
+        dao.insert(message)
+        return message
+    }
+
+    fun enqueueAcknowledged(request: SendRequest): MessageWithRecipients =
+        dao.insertAcknowledged(request.toEntity())
+
+    fun enqueueLegacyCheck(request: SendRequest, deviceId: String, serverUrl: String, simFingerprint: String?): MessageWithRecipients =
+        dao.insertLegacyCheck(request.toEntity(), deviceId, serverUrl, simFingerprint)
+
+    fun recoverSubmissions() {
+        if (recovered.compareAndSet(false, true)) dao.recoverUncertainSubmissions()
+    }
+
+    private fun SendRequest.toEntity(): MessageWithRecipients {
+        val request = this
+        return MessageWithRecipients(
             Message(
                 id = request.message.id,
                 content = request.message.content,
@@ -53,12 +72,10 @@ class MessagesRepository(private val dao: MessagesDao) {
             },
         )
 
-        dao.insert(message)
-
-        return message
     }
 
     fun getPending(order: MessagesSettings.ProcessingOrder): StoredSendRequest? {
+        recoverSubmissions()
         while (true) {
             val now = Date()
             val message = when (order) {

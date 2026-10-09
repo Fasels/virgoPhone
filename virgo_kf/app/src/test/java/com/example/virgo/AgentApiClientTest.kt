@@ -81,6 +81,24 @@ class AgentApiClientTest {
     }
 
     @Test
+    fun messageTimesPreferActualReceiveOrSendTimeAndFallBackToCreationTime() {
+        server.json(AgentApiPaths.conversationMessages("conv_1")) { _, _ ->
+            """[
+                {"id":"sms","direction":"INBOUND","createdAt":1800000000000,"receivedAt":1799999990000,"textContent":"SMS"},
+                {"id":"mms","direction":"INBOUND","messageType":"MMS","createdAt":1800000000000,"receivedAt":1799999991000},
+                {"id":"reply","direction":"OUTBOUND","createdAt":1800000000000,"sentAt":1800000005000},
+                {"id":"pending","direction":"OUTBOUND","state":"Pending","createdAt":1800000000000,"sentAt":null},
+                {"id":"legacy","direction":"INBOUND","createdAt":1800000000000,"receivedAt":0}
+            ]""".trimIndent()
+        }
+        val messages = AgentApiClient(baseUrl = baseUrl).messages("conv_1")
+        assertEquals(
+            listOf("1799999990000", "1799999991000", "1800000005000", "1800000000000", "1800000000000"),
+            messages.map { it.time },
+        )
+    }
+
+    @Test
     fun messagesMapMmsAttachmentsSortedByPartIdAndDefaultMissingAttachments() {
         server.json(AgentApiPaths.conversationMessages("conv_1")) { exchange, body ->
             seenRequests += exchange.seen(body)

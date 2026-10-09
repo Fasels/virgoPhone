@@ -15,16 +15,22 @@ import android.telephony.TelephonyManager
 import android.util.Base64
 import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import me.capcom.smsgateway.data.dao.MessagesDao
 import me.capcom.smsgateway.data.entities.Message
+import me.capcom.smsgateway.data.entities.MessagePartResult
 import me.capcom.smsgateway.data.entities.MessageWithRecipients
 import me.capcom.smsgateway.domain.EntitySource
 import me.capcom.smsgateway.domain.MessageContent
 import me.capcom.smsgateway.domain.ProcessingState
 import me.capcom.smsgateway.helpers.PhoneHelper
+import me.capcom.smsgateway.helpers.GatewaySimIdentity
+import me.capcom.smsgateway.helpers.GatewayRunIntent
+import me.capcom.smsgateway.modules.gateway.GatewaySettings
 import me.capcom.smsgateway.helpers.SubscriptionsHelper
 import me.capcom.smsgateway.modules.encryption.EncryptionService
 import me.capcom.smsgateway.modules.events.EventBus
@@ -51,7 +57,10 @@ class MessagesService(
     private val encryptionService: EncryptionService,
     private val events: EventBus,
     private val logsService: LogsService,
+    private val gatewaySettings: GatewaySettings,
 ) {
+    private val sendMutex = Mutex()
+
     val processingOrder
         get() = settings.processingOrder
 
@@ -80,6 +89,8 @@ class MessagesService(
 
     //#region Lifecycle
     fun start(context: Context) {
+        messages.recoverSubmissions()
+        SendMessagesWorker.cancelLegacy(context)
         SendMessagesWorker.start(context, true, SendMessagesWorker.IMMEDIATE)
         LogTruncateWorker.start(context)
     }
@@ -115,6 +126,23 @@ class MessagesService(
             )
         }
 
+        return message
+    }
+    /** Inserts the local message and marks its durable receipt ENQUEUED in one transaction. */
+    fun enqueueAcknowledgedGatewayMessage(request: SendRequest): MessageWithRecipients {
+        val message = messages.enqueueAcknowledged(request)
+        if (message.message.state == ProcessingState.Pending &&
+            dao.delivery(message.message.id)?.phase == "ENQUEUED") {
+            SendMessagesWorker.start(context, false, SendMessagesWorker.IMMEDIATE)
+        }
+        return message
+    }
+
+    fun enqueueLegacyCheckMessage(request: SendRequest, deviceId: String, serverUrl: String): MessageWithRecipients {
+        val message = messages.enqueueLegacyCheck(request, deviceId, serverUrl, GatewaySimIdentity.capture(context, request.params.simNumber))
+        if (message.message.state == ProcessingState.Pending && dao.delivery(message.message.id)?.phase == "ENQUEUED") {
+            SendMessagesWorker.start(context, false, SendMessagesWorker.IMMEDIATE)
+        }
         return message
     }
     //#endregion
@@ -176,15 +204,13 @@ class MessagesService(
                     resultCode
                 )
 
-                intent.hasExtra("uri") -> ProcessingState.Sent to null
-                else -> return
+                else -> ProcessingState.Sent to null
             }
 
             EventsReceiver.ACTION_DELIVERED -> when (resultCode) {
                 Activity.RESULT_OK -> {
-                    val message = SmsMessage.createFromPdu(
-                        intent.extras?.getByteArray("pdu")
-                    )
+                    val pdu = intent.extras?.getByteArray("pdu") ?: return
+                    val message = SmsMessage.createFromPdu(pdu) ?: return
                     when {
                         message.status.toUInt() < 0b0100000u -> ProcessingState.Delivered to message.status.takeIf { it > 0 }
                             ?.let { "Delivery result from SC ${message.serviceCenterAddress}: ${message.status}" }
@@ -199,9 +225,20 @@ class MessagesService(
             else -> return
         }
 
-        val (id, phone) = intent.dataString?.split("|", limit = 2) ?: return
-
-        updateState(id, phone, state, error)
+        val fields = intent.dataString?.split("|", limit = 3) ?: return
+        if (fields.size < 2) return
+        val id = fields[0]
+        val phone = fields[1]
+        val partIndex = fields.getOrNull(2)?.toIntOrNull()
+        if (partIndex == null) {
+            // Keep callbacks from PendingIntents created before this upgrade working.
+            updateState(id, phone, state, error)
+        } else {
+            val changed = dao.recordPartResult(MessagePartResult(
+                id, phone, partIndex, requireNotNull(intent.action), state, error,
+            ))
+            if (changed > 0) emitState(id, phone, state, error)
+        }
     }
 
     suspend fun truncateLog() {
@@ -211,51 +248,57 @@ class MessagesService(
     }
 
     internal suspend fun sendPendingMessages() {
-        try {
-            var previousPriority = Message.PRIORITY_MIN
+        sendMutex.withLock {
+            try {
+                var previousPriority = Message.PRIORITY_MIN
 
-            while (true) {
-                val message = messages.getPending(settings.processingOrder) ?: return
-                delay(1L)
+                while (true) {
+                    val message = messages.getPending(settings.processingOrder) ?: return
+                    if (message.source != EntitySource.Local &&
+                        (!gatewaySettings.enabled || !GatewayRunIntent.isRequested(context))) return
+                    delay(1L)
 
-                val priority = message.params.priority ?: Message.PRIORITY_DEFAULT
+                    val priority = message.params.priority ?: Message.PRIORITY_DEFAULT
 
-                // apply limits if:
-                // - message is not expedited
-                // - message is expedited and previous message had higher or equal priority
-                if (priority < Message.PRIORITY_EXPEDITED
-                    || previousPriority >= priority
-                ) {
-                    applyLimit()
-                }
+                    // apply limits if:
+                    // - message is not expedited
+                    // - message is expedited and previous message had higher or equal priority
+                    if (priority < Message.PRIORITY_EXPEDITED
+                        || previousPriority >= priority
+                    ) {
+                        applyLimit()
+                    }
 
-                if (!withContext(NonCancellable) { sendMessage(message) }) {
-                    // if message was not sent - don't need any delay before next message
-                    continue
-                }
+                    if (!withContext(NonCancellable) { sendMessage(message) }) {
+                        // if message was not sent - don't need any delay before next message
+                        continue
+                    }
 
-                // don't apply delay for expedited messages
-                if (priority >= Message.PRIORITY_EXPEDITED && previousPriority < priority) {
+                    // don't apply delay for expedited messages
+                    if (priority >= Message.PRIORITY_EXPEDITED && previousPriority < priority) {
+                        previousPriority = priority
+                        continue
+                    }
+
                     previousPriority = priority
-                    continue
-                }
 
-                previousPriority = priority
-
-                settings.sendIntervalRange?.let {
-                    delay(it.random() * 1000L)
+                    settings.sendIntervalRange?.let {
+                        delay(it.random() * 1000L)
+                    }
                 }
-            }
-        } finally {
-            if (coroutineContext.isActive) {
-                // After processing all pending messages, check if there are any scheduled messages for the future
-                val nextScheduledTime = dao.nextScheduledTime() ?: 0
-                if (nextScheduledTime > System.currentTimeMillis()) {
-                    SendMessagesWorker.start(context, true, nextScheduledTime)
+            } finally {
+                if (coroutineContext.isActive) {
+                    // After processing all pending messages, check if there are any scheduled messages for the future
+                    val nextScheduledTime = dao.nextScheduledTime() ?: 0
+                    if (nextScheduledTime > System.currentTimeMillis()) {
+                        SendMessagesWorker.start(context, true, nextScheduledTime)
+                    }
                 }
             }
         }
+
     }
+
 
     private suspend fun applyLimit() {
         if (!settings.limitEnabled) {
@@ -302,13 +345,16 @@ class MessagesService(
         state: ProcessingState,
         error: String? = null
     ) {
-        if (phone == null) {
+        val changed = if (phone == null) {
             dao.updateRecipientsState(id, state, error)
         } else {
             dao.updateRecipientState(id, phone, state, error)
         }
+        if (changed > 0) emitState(id, phone, state, error)
+    }
 
-        val msg = requireNotNull(getMessage(id))
+    private suspend fun emitState(id: String, phone: String?, state: ProcessingState, error: String?) {
+        val msg = getMessage(id) ?: return
 
         events.emit(
             MessageStateChangedEvent(
@@ -351,7 +397,8 @@ class MessagesService(
             dao.updateSimNumber(id, simNumber + 1)
         }
 
-        val sendFn: (String, PendingIntent, PendingIntent?) -> Unit =
+        var partsCount = 1
+        val sendFn: (String, ArrayList<PendingIntent>, ArrayList<PendingIntent>?) -> Unit =
             when (val content = message.content) {
                 is MessageContent.Text -> {
                     // Handle text messages
@@ -361,26 +408,28 @@ class MessagesService(
                     }
 
                     val parts = smsManager.divideMessage(text)
-                    dao.updatePartsCount(id, parts.size)
+                    partsCount = parts.size
+                    require(partsCount > 0) { "Message has no SMS parts" }
+                    dao.updatePartsCount(id, partsCount)
 
                     if (parts.size > 1) {
-                        { phoneNumber: String, sentIntent: PendingIntent, deliveredIntent: PendingIntent? ->
+                        { phoneNumber: String, sentIntents: ArrayList<PendingIntent>, deliveredIntents: ArrayList<PendingIntent>? ->
                             smsManager.sendMultipartTextMessage(
                                 phoneNumber,
                                 null,
                                 parts,
-                                ArrayList(List(parts.size) { sentIntent }),
-                                deliveredIntent?.let { intent -> ArrayList(List(parts.size) { intent }) }
+                                sentIntents,
+                                deliveredIntents
                             )
                         }
                     } else {
-                        { phoneNumber: String, sentIntent: PendingIntent, deliveredIntent: PendingIntent? ->
+                        { phoneNumber: String, sentIntents: ArrayList<PendingIntent>, deliveredIntents: ArrayList<PendingIntent>? ->
                             smsManager.sendTextMessage(
                                 phoneNumber,
                                 null,
                                 text,
-                                sentIntent,
-                                deliveredIntent
+                                sentIntents.first(),
+                                deliveredIntents?.first()
                             )
                         }
                     }
@@ -401,14 +450,14 @@ class MessagesService(
                     }
                     dao.updatePartsCount(id, 1);
 
-                    { phoneNumber: String, sentIntent: PendingIntent, deliveredIntent: PendingIntent? ->
+                    { phoneNumber: String, sentIntents: ArrayList<PendingIntent>, deliveredIntents: ArrayList<PendingIntent>? ->
                         smsManager.sendDataMessage(
                             phoneNumber,
                             null,  // scAddress
                             content.port.toShort(),
                             decodedData,
-                            sentIntent,
-                            deliveredIntent
+                            sentIntents.first(),
+                            deliveredIntents?.first()
                         )
                     }
                 }
@@ -416,65 +465,83 @@ class MessagesService(
 
 
 
-        request.message.phoneNumbers
-            .forEach { sourcePhoneNumber ->
-                val sentIntent = PendingIntent.getBroadcast(
-                    context,
-                    0,
-                    Intent(
-                        EventsReceiver.ACTION_SENT,
-                        Uri.parse("$id|$sourcePhoneNumber"),
-                        context,
-                        EventsReceiver::class.java
-                    ),
-                    PendingIntent.FLAG_MUTABLE
-                )
-                val deliveredIntent = when (request.params.withDeliveryReport) {
-                    false -> null
-                    true -> PendingIntent.getBroadcast(
-                        context,
-                        0,
-                        Intent(
-                            EventsReceiver.ACTION_DELIVERED,
-                            Uri.parse("$id|$sourcePhoneNumber"),
-                            context,
-                            EventsReceiver::class.java
-                        ),
-                        PendingIntent.FLAG_MUTABLE
-                    )
-                }
-
-                try {
-                    val phoneNumber = when (message.isEncrypted) {
-                        true -> encryptionService.decrypt(sourcePhoneNumber)
-                        false -> sourcePhoneNumber
-                    }
-                    val normalizedPhoneNumber = when (request.params.skipPhoneValidation) {
-                        true -> phoneNumber.filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
-                        false -> PhoneHelper.filterPhoneNumber(phoneNumber, countryCode ?: "RU")
-                    }
-
-                    sendFn(normalizedPhoneNumber, sentIntent, deliveredIntent)
-
-                    updateState(id, sourcePhoneNumber, ProcessingState.Processed)
-                } catch (th: Throwable) {
-                    logsService.insert(
-                        LogEntry.Priority.ERROR,
-                        MODULE_NAME,
-                        "Can't send message: " + th.message,
-                        mapOf(
-                            "stacktrace" to th.stackTraceToString(),
-                        )
-                    )
-
-                    updateState(
-                        id,
-                        sourcePhoneNumber,
-                        ProcessingState.Failed,
-                        "sendSMS: " + th.message
-                    )
-                }
+        // Commit the fence before the first external side effect. A process death in
+        // this interval is deliberately quarantined rather than automatically retried.
+        val ledger = dao.delivery(id)
+        if (request.source != EntitySource.Local) {
+            if (!gatewaySettings.enabled || !GatewayRunIntent.isRequested(context)) return
+            val currentFingerprint = GatewaySimIdentity.capture(context, request.params.simNumber)
+            if (ledger?.simFingerprint == null || currentFingerprint == null || ledger.simFingerprint != currentFingerprint) {
+                dao.quarantineExecution(id, "sim-identity-changed-before-submission")
+                return
             }
+        }
+        if (!dao.claimExecution(id)) return
+        try {
+            request.message.phoneNumbers
+                .forEach { sourcePhoneNumber ->
+                    val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+                    fun intents(action: String): ArrayList<PendingIntent> = ArrayList(
+                        (0 until partsCount).map { partIndex ->
+                            PendingIntent.getBroadcast(
+                                context, 0,
+                                Intent(action, Uri.parse("$id|$sourcePhoneNumber|$partIndex"), context, EventsReceiver::class.java),
+                                flags,
+                            )
+                        }
+                    )
+                    val sentIntents = intents(EventsReceiver.ACTION_SENT)
+                    val deliveredIntents = if (request.params.withDeliveryReport) intents(EventsReceiver.ACTION_DELIVERED) else null
+
+                    try {
+                        val phoneNumber = when (message.isEncrypted) {
+                            true -> encryptionService.decrypt(sourcePhoneNumber)
+                            false -> sourcePhoneNumber
+                        }
+                        val normalizedPhoneNumber = when (request.params.skipPhoneValidation) {
+                            true -> phoneNumber.filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
+                            false -> PhoneHelper.filterPhoneNumber(phoneNumber, countryCode ?: "RU")
+                        }
+
+                        // Persist Processed before invoking SmsManager so a synchronous callback
+                        // cannot later be downgraded by the submitting coroutine.
+                        updateState(id, sourcePhoneNumber, ProcessingState.Processed)
+                        // Event delivery above can suspend; recheck immediately before every
+                        // external call, including later recipients in the same message.
+                        if (request.source != EntitySource.Local &&
+                            GatewaySimIdentity.capture(context, request.params.simNumber) != ledger?.simFingerprint) {
+                            dao.quarantineExecution(id, "sim-identity-changed-during-submission")
+                            return
+                        }
+                        if (request.source != EntitySource.Local &&
+                            (!gatewaySettings.enabled || !GatewayRunIntent.isRequested(context))) {
+                            dao.quarantineExecution(id, "gateway-stopped-during-submission")
+                            return
+                        }
+                        sendFn(normalizedPhoneNumber, sentIntents, deliveredIntents)
+
+                    } catch (th: Throwable) {
+                        logsService.insert(
+                            LogEntry.Priority.ERROR,
+                            MODULE_NAME,
+                            "Can't send message: " + th.message,
+                            mapOf(
+                                "stacktrace" to th.stackTraceToString(),
+                            )
+                        )
+
+                        updateState(
+                            id,
+                            sourcePhoneNumber,
+                            ProcessingState.Failed,
+                            "sendSMS: " + th.message
+                        )
+                    }
+                }
+        } finally {
+            dao.finishSubmission(id)
+        }
     }
 
     @SuppressLint("NewApi")

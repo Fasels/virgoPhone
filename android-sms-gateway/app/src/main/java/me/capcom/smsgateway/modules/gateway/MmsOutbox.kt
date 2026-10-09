@@ -45,6 +45,19 @@ class MmsOutbox(private val directory: File) {
         directory.listFiles().orEmpty().filter { it.extension == "failed" }.forEach { it.delete() }
     }
 
+    /** Preserve unrelated permanent failures and each original immutable payload. */
+    fun retryFailedMatching(eligible: (payload: String, reason: String) -> Boolean): Int = synchronized(lock) {
+        var restored = 0
+        directory.listFiles().orEmpty().filter { it.extension == "failed" }.forEach { failure ->
+            val key = failure.nameWithoutExtension
+            if (!key.matches(Regex("[a-f0-9]{64}"))) return@forEach
+            val payload = file(key, "json")
+            if (!payload.isFile || file(key, "done").exists()) return@forEach
+            if (eligible(payload.readText(), failure.readText()) && failure.delete()) restored++
+        }
+        restored
+    }
+
     private fun file(key: String, suffix: String): File {
         require(key.matches(Regex("[a-f0-9]{64}")))
         return File(directory, "$key.$suffix")
